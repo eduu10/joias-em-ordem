@@ -1,0 +1,13 @@
+{
+  "name": "playables-starter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Projeto base de jogo HTML5 para o YouTube Playables",
+  "scripts": {
+    "dev": "node tools/serve.mjs",
+    "test": "node --test \"tests/*.test.js\"",
+    "check": "node tools/check.mjs",
+    "bundle": "node tools/check.mjs && node tools/bundle.mjs"
+  }
+}
