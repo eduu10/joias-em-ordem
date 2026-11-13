@@ -11,6 +11,15 @@
     "bundle": "node tools/check.mjs && node tools/bundle.mjs",
     "dev:guardioes": "node tools/serve.mjs guardioes 5174",
     "check:guardioes": "node tools/check.mjs guardioes",
-    "bundle:guardioes": "node tools/check.mjs guardioes && node tools/bundle.mjs guardioes"
+    "bundle:guardioes": "node tools/check.mjs guardioes && node tools/bundle.mjs guardioes",
+    "dev:cosmos": "node tools/serve.mjs cosmos 5175",
+    "check:cosmos": "node tools/check.mjs cosmos",
+    "bundle:cosmos": "node tools/check.mjs cosmos && node tools/bundle.mjs cosmos",
+    "dev:cristais": "node tools/serve.mjs cristais 5176",
+    "check:cristais": "node tools/check.mjs cristais",
+    "bundle:cristais": "node tools/check.mjs cristais && node tools/bundle.mjs cristais",
+    "dev:corrida": "node tools/serve.mjs corrida 5177",
+    "check:corrida": "node tools/check.mjs corrida",
+    "bundle:corrida": "node tools/check.mjs corrida && node tools/bundle.mjs corrida"
   }
 }
