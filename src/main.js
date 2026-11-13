@@ -103,7 +103,8 @@ const frame = (time) => {
   if (!running) return;
   // Agenda o proximo quadro antes de tudo: um erro num quadro nao pode congelar o jogo.
   frameId = requestAnimationFrame(frame);
-  const dt = Math.min(CONFIG.maxFrameSeconds, (time - lastTime) / 1000);
+  // O relogio do quadro pode vir um pouco antes do ultimo tempo guardado: nunca deixar o tempo andar para tras.
+  const dt = Math.max(0, Math.min(CONFIG.maxFrameSeconds, (time - lastTime) / 1000));
   lastTime = time;
   update(dt);
   drawFrame();
