@@ -1,2 +1,4 @@
 node_modules/
 playable*.zip
+covers/chrome-profile/
+covers/edge-profile/

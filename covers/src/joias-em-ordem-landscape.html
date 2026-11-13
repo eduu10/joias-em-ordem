@@ -1,0 +1,356 @@
+<!doctype html><meta charset="utf-8"><style>*{margin:0}html,body{width:1280px;height:720px;overflow:hidden}canvas{display:block}</style><canvas width="1280" height="720"></canvas><script>
+// Todos os numeros de balanceamento e de ritmo do jogo ficam aqui.
+const CONFIG = Object.freeze({
+  capacity: 4,
+  emptyJars: 2,
+  maxColors: 9,
+  levelsPerNewColor: 3,
+  solverNodeLimit: 40000,
+  generationAttempts: 40,
+  undoLimit: 300,
+  startingHints: 3,
+  hintsPerAd: 3,
+  interstitialEveryLevels: 3,
+  firstInterstitialLevel: 3,
+  flightSeconds: 0.26,
+  liftSeconds: 0.14,
+  bounceSeconds: 0.24,
+  hintSeconds: 2.6,
+  toastSeconds: 2.2,
+  introSeconds: 0.45,
+  winDelaySeconds: 0.7,
+  maxFrameSeconds: 0.05,
+  saveVersion: 2,
+});
+
+const PHASE = Object.freeze({ PLAYING: 'playing', WON: 'won' });
+
+// Matiz, saturacao e luminosidade de cada cor de gema.
+const PALETTE = Object.freeze([
+  Object.freeze([350, 88, 58]),
+  Object.freeze([212, 92, 58]),
+  Object.freeze([46, 96, 54]),
+  Object.freeze([142, 68, 48]),
+  Object.freeze([274, 78, 62]),
+  Object.freeze([24, 94, 56]),
+  Object.freeze([178, 78, 46]),
+  Object.freeze([322, 86, 68]),
+  Object.freeze([210, 22, 82]),
+]);
+
+const REWARD_ID_HINTS = 'hints-pack-3';
+
+// Ajudantes de desenho usados por todos os modulos visuais.
+const FONT_STACK = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
+const hsl = ([h, s, l], lightShift = 0, alpha = 1) =>
+  `hsl(${h} ${s}% ${Math.min(100, Math.max(0, l + lightShift))}% / ${alpha})`;
+
+const gemColor = (color, lightShift = 0, alpha = 1) =>
+  hsl(PALETTE[color % PALETTE.length], lightShift, alpha);
+
+const roundRectPath = (ctx, x, y, w, h, radius) => {
+  const r = Math.min(radius, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+};
+
+const drawText = (ctx, text, x, y, size, options = {}) => {
+  const { color = '#ffffff', weight = 800, align = 'center', shadow = true } = options;
+  ctx.font = `${weight} ${Math.round(size)}px ${FONT_STACK}`;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'middle';
+  if (shadow) {
+    ctx.fillStyle = 'rgba(20, 8, 50, 0.45)';
+    ctx.fillText(text, x, y + Math.max(1, size * 0.07));
+  }
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+};
+
+// Reduz o tamanho da fonte ate o texto caber na largura dada.
+const fitText = (ctx, text, maxWidth, size, weight = 800) => {
+  ctx.font = `${weight} ${Math.round(size)}px ${FONT_STACK}`;
+  const width = ctx.measureText(text).width;
+  return width <= maxWidth ? size : size * (maxWidth / width);
+};
+
+// Gemas. Cada cor tem tambem um simbolo proprio, para quem nao distingue bem as cores.
+// As gemas sao desenhadas uma vez num canvas auxiliar e depois so copiadas, o que deixa o jogo leve.
+const cache = new Map();
+
+const polygon = (ctx, points, radius, rotation = -Math.PI / 2, innerRatio = 1) => {
+  ctx.beginPath();
+  for (let i = 0; i < points; i += 1) {
+    const r = i % 2 === 1 ? radius * innerRatio : radius;
+    const angle = rotation + (i * Math.PI * 2) / points;
+    ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+  }
+  ctx.closePath();
+};
+
+const SYMBOLS = Object.freeze([
+  (ctx, r) => { // coracao
+    ctx.beginPath();
+    ctx.moveTo(0, r * 0.95);
+    ctx.bezierCurveTo(-r * 1.45, r * 0.05, -r * 0.75, -r * 1.05, 0, -r * 0.4);
+    ctx.bezierCurveTo(r * 0.75, -r * 1.05, r * 1.45, r * 0.05, 0, r * 0.95);
+  },
+  (ctx, r) => { // gota
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 1.05);
+    ctx.bezierCurveTo(r * 1.0, -r * 0.05, r * 0.85, r * 0.95, 0, r * 0.95);
+    ctx.bezierCurveTo(-r * 0.85, r * 0.95, -r * 1.0, -r * 0.05, 0, -r * 1.05);
+  },
+  (ctx, r) => polygon(ctx, 10, r * 1.1, -Math.PI / 2, 0.45), // estrela
+  (ctx, r) => polygon(ctx, 3, r * 1.1), // triangulo
+  (ctx, r) => polygon(ctx, 4, r * 1.1), // losango
+  (ctx, r) => polygon(ctx, 4, r * 1.05, Math.PI / 4), // quadrado
+  (ctx, r) => { // cruz
+    const arm = r * 0.36;
+    ctx.beginPath();
+    ctx.rect(-arm, -r, arm * 2, r * 2);
+    ctx.rect(-r, -arm, r * 2, arm * 2);
+  },
+  (ctx, r) => { // lua
+    ctx.beginPath();
+    ctx.arc(0, 0, r, Math.PI * 0.32, Math.PI * 1.68);
+    ctx.arc(r * 0.5, 0, r * 0.78, Math.PI * 1.4, Math.PI * 0.6, true);
+    ctx.closePath();
+  },
+  (ctx, r) => polygon(ctx, 6, r * 1.05, 0), // hexagono
+]);
+
+const paintGem = (ctx, color, size) => {
+  const center = size / 2;
+  const radius = size / 2 - 1;
+
+  const body = ctx.createRadialGradient(center - radius * 0.35, center - radius * 0.42, radius * 0.05, center, center, radius);
+  body.addColorStop(0, gemColor(color, 24));
+  body.addColorStop(0.5, gemColor(color, 0));
+  body.addColorStop(1, gemColor(color, -24));
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.arc(center, center, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = gemColor(color, -34, 0.75);
+  ctx.lineWidth = Math.max(1, radius * 0.06);
+  ctx.stroke();
+
+  // Luz rebatida embaixo.
+  ctx.strokeStyle = gemColor(color, 30, 0.45);
+  ctx.lineWidth = radius * 0.09;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(center, center, radius * 0.8, Math.PI * 0.2, Math.PI * 0.8);
+  ctx.stroke();
+
+  const symbol = SYMBOLS[color % SYMBOLS.length];
+  ctx.save();
+  ctx.translate(center, center + radius * 0.1);
+  ctx.fillStyle = gemColor(color, -34, 0.55);
+  symbol(ctx, radius * 0.4);
+  ctx.fill();
+  ctx.translate(0, -radius * 0.06);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+  symbol(ctx, radius * 0.4);
+  ctx.fill();
+  ctx.restore();
+
+  // Brilho no alto, o que da o aspecto de vidro polido.
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.beginPath();
+  ctx.ellipse(center - radius * 0.34, center - radius * 0.5, radius * 0.34, radius * 0.17, -0.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+  ctx.beginPath();
+  ctx.arc(center + radius * 0.42, center - radius * 0.52, radius * 0.07, 0, Math.PI * 2);
+  ctx.fill();
+};
+
+const spriteFor = (color, pixels) => {
+  const key = `${color}:${pixels}`;
+  const cached = cache.get(key);
+  if (cached) return cached;
+  const sprite = document.createElement('canvas');
+  sprite.width = pixels;
+  sprite.height = pixels;
+  paintGem(sprite.getContext('2d'), color, pixels);
+  cache.set(key, sprite);
+  return sprite;
+};
+
+const clearSprites = () => cache.clear();
+
+// `squash` de 0 a 1 achata a gema contra o chao (efeito de quique).
+const drawGem = (ctx, color, x, y, size, ratio, squash = 0) => {
+  const sprite = spriteFor(color, Math.max(8, Math.round(size * ratio)));
+  const w = size * (1 + squash * 0.2);
+  const h = size * (1 - squash * 0.24);
+  ctx.drawImage(sprite, x - w / 2, y + size / 2 - h, w, h);
+};
+
+// Potes de vidro. O fundo e desenhado antes das gemas e o contorno depois, para elas parecerem la dentro.
+const GOLD = '255, 214, 102';
+const WHITE = '255, 255, 255';
+const HINT = '120, 255, 214';
+
+const tubePath = (ctx, jar) => {
+  const radius = jar.w / 2;
+  ctx.beginPath();
+  ctx.moveTo(jar.x, jar.y);
+  ctx.lineTo(jar.x, jar.y + jar.h - radius);
+  ctx.arc(jar.x + radius, jar.y + jar.h - radius, radius, Math.PI, 0, true);
+  ctx.lineTo(jar.x + jar.w, jar.y);
+};
+
+const drawJarBack = (ctx, jar, gem) => {
+  ctx.fillStyle = 'rgba(8, 2, 30, 0.38)';
+  ctx.beginPath();
+  ctx.ellipse(jar.cx, jar.y + jar.h + gem * 0.1, jar.w * 0.56, gem * 0.13, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const glass = ctx.createLinearGradient(jar.x, 0, jar.x + jar.w, 0);
+  glass.addColorStop(0, `rgba(${WHITE}, 0.2)`);
+  glass.addColorStop(0.35, `rgba(${WHITE}, 0.06)`);
+  glass.addColorStop(1, `rgba(${WHITE}, 0.16)`);
+  tubePath(ctx, jar);
+  ctx.closePath();
+  ctx.fillStyle = glass;
+  ctx.fill();
+};
+
+// `state`: { done, target, hint, pulse } onde pulse vai de 0 a 1.
+const drawJarFront = (ctx, jar, gem, state) => {
+  const tint = state.done ? GOLD : state.hint ? HINT : WHITE;
+  const strong = state.done || state.hint || state.target;
+  const line = Math.max(2, gem * 0.07);
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  if (strong) {
+    ctx.shadowColor = `rgba(${tint}, ${0.55 + state.pulse * 0.35})`;
+    ctx.shadowBlur = gem * (0.35 + state.pulse * 0.3);
+  }
+  tubePath(ctx, jar);
+  ctx.strokeStyle = `rgba(${tint}, ${strong ? 0.95 : 0.62})`;
+  ctx.lineWidth = line;
+  ctx.stroke();
+  ctx.restore();
+
+  // Reflexo vertical do vidro.
+  ctx.strokeStyle = `rgba(${WHITE}, 0.28)`;
+  ctx.lineWidth = jar.w * 0.07;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(jar.x + jar.w * 0.2, jar.y + jar.h * 0.1);
+  ctx.lineTo(jar.x + jar.w * 0.2, jar.y + jar.h * 0.62);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(jar.x + jar.w * 0.2, jar.y + jar.h * 0.7);
+  ctx.lineTo(jar.x + jar.w * 0.2, jar.y + jar.h * 0.74);
+  ctx.stroke();
+
+  // Borda da boca do pote.
+  const rimH = Math.max(4, gem * 0.14);
+  const rimW = jar.w * 1.16;
+  ctx.fillStyle = `rgba(${tint}, ${strong ? 0.95 : 0.78})`;
+  ctx.beginPath();
+  ctx.ellipse(jar.cx, jar.y, rimW / 2, rimH / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(40, 16, 90, 0.55)';
+  ctx.beginPath();
+  ctx.ellipse(jar.cx, jar.y, rimW / 2 - line, Math.max(1, rimH / 2 - line * 0.55), 0, 0, Math.PI * 2);
+  ctx.fill();
+};
+
+// Fundo: degrade, luz suave no alto e bolhas de luz flutuando devagar.
+const BOKEH_COUNT = 16;
+const TAU = Math.PI * 2;
+
+// Numero "aleatorio" fixo por indice, para as bolhas nao precisarem de estado.
+const noise = (index, salt) => {
+  const value = Math.sin(index * 127.1 + salt * 311.7) * 43758.5453;
+  return value - Math.floor(value);
+};
+
+const drawGradient = (ctx, w, h) => {
+  const sky = ctx.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, '#4b1f8f');
+  sky.addColorStop(0.45, '#3a1a78');
+  sky.addColorStop(1, '#170d3d');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, h);
+
+  const glow = ctx.createRadialGradient(w / 2, h * 0.12, 0, w / 2, h * 0.12, Math.max(w, h) * 0.75);
+  glow.addColorStop(0, 'rgba(255, 140, 220, 0.34)');
+  glow.addColorStop(0.5, 'rgba(120, 110, 255, 0.12)');
+  glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+};
+
+const drawBokeh = (ctx, w, h, time) => {
+  const base = Math.min(w, h);
+  for (let i = 0; i < BOKEH_COUNT; i += 1) {
+    const speed = 0.008 + noise(i, 3) * 0.014;
+    const rise = (noise(i, 2) - time * speed) % 1;
+    const y = ((rise + 1) % 1) * (h * 1.2) - h * 0.1;
+    const x = noise(i, 1) * w + Math.sin(time * 0.25 + i) * base * 0.03;
+    const radius = base * (0.025 + noise(i, 4) * 0.075);
+    const alpha = 0.035 + noise(i, 5) * 0.06;
+    const hue = 250 + noise(i, 6) * 90;
+    ctx.fillStyle = `hsl(${hue} 90% 78% / ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, TAU);
+    ctx.fill();
+  }
+};
+
+const drawVignette = (ctx, w, h) => {
+  const shade = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.8);
+  shade.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  shade.addColorStop(1, 'rgba(8, 2, 30, 0.55)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, w, h);
+};
+
+const drawBackground = (ctx, view, time) => {
+  drawGradient(ctx, view.width, view.height);
+  drawBokeh(ctx, view.width, view.height, time);
+  drawVignette(ctx, view.width, view.height);
+};
+
+
+const c=document.querySelector('canvas'),ctx=c.getContext('2d');
+const W=c.width,H=c.height,P=H>W;
+function ellipse(x,y,rx,ry,color){ctx.fillStyle=color;ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.fill()}
+function glow(x,y,r,color){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,color);g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.fillRect(x-r,y-r,r*2,r*2)}
+function star(x,y,r,color='#fff6ba'){ctx.save();ctx.translate(x,y);ctx.fillStyle=color;ctx.shadowColor=color;ctx.shadowBlur=20;ctx.beginPath();for(let i=0;i<8;i++){let a=i*Math.PI/4,rr=i%2?r*.19:r;ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr)}ctx.closePath();ctx.fill();ctx.restore()}
+function burst(x,y,r,color){ctx.save();ctx.translate(x,y);for(let i=0;i<26;i++){ctx.rotate(Math.PI*2/26);ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(r,-r*.028);ctx.lineTo(r,r*.028);ctx.fill()}ctx.restore()}
+function trail(ax,ay,bx,by,cx,cy,color,width){ctx.save();ctx.lineCap='round';ctx.shadowColor=color;ctx.shadowBlur=22;ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(ax,ay);ctx.quadraticCurveTo(bx,by,cx,cy);ctx.stroke();ctx.strokeStyle='#fffde6';ctx.lineWidth=width*.28;ctx.stroke();ctx.restore()}
+function title(lines,ys,maxWidth,size,x){ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineJoin='round';lines.forEach((line,i)=>{ctx.font=`1000 ${size}px "Arial Black", "Segoe UI", sans-serif`;let s=size*Math.min(1,maxWidth/ctx.measureText(line).width);ctx.font=`1000 ${s}px "Arial Black", "Segoe UI", sans-serif`;ctx.shadowColor='#9d56ff';ctx.shadowBlur=30;ctx.strokeStyle='#190b38';ctx.lineWidth=23;ctx.strokeText(line,x,ys[i]+8);ctx.shadowBlur=0;ctx.strokeStyle='#190b38';ctx.lineWidth=17;ctx.strokeText(line,x,ys[i]);ctx.strokeStyle='#ffe5a3';ctx.lineWidth=3;ctx.strokeText(line,x,ys[i]);let g=ctx.createLinearGradient(0,ys[i]-s*.5,0,ys[i]+s*.5);g.addColorStop(0,'#ffffff');g.addColorStop(.45,'#fff5b9');g.addColorStop(1,'#ffbb36');ctx.fillStyle=g;ctx.fillText(line,x,ys[i])});ctx.restore()}
+function vignette(){let g=ctx.createRadialGradient(W*.52,H*.55,W*.25,W*.5,H*.5,Math.max(W,H)*.7);g.addColorStop(0,'transparent');g.addColorStop(1,'#06051b8a');ctx.fillStyle=g;ctx.fillRect(0,0,W,H)}
+function scene(){ctx.save();ctx.translate(P?0:540,P?490:55);ctx.scale(P?1.08:.68,P?1.08:.68)}
+
+
+drawBackground(ctx,{width:W,height:H},0);glow(W*.58,H*.57,W*.7,'#a450ff88');
+scene();burst(520,440,850,'#dca4ff15');
+for(let i=0;i<24;i++){let x=(Math.sin(i*12.5)*.5+.5)*1000,y=(Math.cos(i*4.2)*.5+.5)*1000;ellipse(x,y,18+i%4*11,18+i%4*11,'#e0b4ff12')}
+function jar(x,y,a,colors,done=false){ctx.save();ctx.translate(x,y);ctx.rotate(a);const j={x:-100,y:0,w:200,h:690,cx:0};drawJarBack(ctx,j,165);colors.forEach((col,i)=>drawGem(ctx,col,0,580-i*174,177,1));drawJarFront(ctx,j,165,{done,pulse:.7});ctx.restore()}
+jar(220,195,-.19,[1,0,2,4]);jar(760,240,.19,[3,3,3,3],true);jar(480,300,.025,[5,7,8]);
+trail(240,125,480,-85,710,120,'#fff1a9',21);glow(550,85,200,'#ffcf5380');
+ctx.save();ctx.translate(550,85);ctx.rotate(.2);drawGem(ctx,2,0,0,225,1);ctx.restore();
+drawGem(ctx,6,110,860,190,1);drawGem(ctx,0,895,865,205,1);
+[[380,80,30],[665,35,22],[690,240,30],[130,390,19],[780,710,30],[355,835,23],[480,210,15],[890,380,18]].forEach(s=>star(...s));ctx.restore();
+vignette();
+if(P)title(['JOIAS','EM ORDEM'],[175,335],790,170,540);else{title(['JOIAS','EM ORDEM'],[180,310],335,116,310);glow(250,570,200,'#a769ff50');drawGem(ctx,0,180,555,175,1);drawGem(ctx,1,340,590,150,1);star(420,495,25)}
+
+document.title="Rendered";</script>
