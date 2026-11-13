@@ -1,0 +1,501 @@
+<!doctype html><meta charset="utf-8"><canvas width="1080" height="1620"></canvas><script>
+// Numeros de balanceamento e medidas. O jogo e desenhado num espaco fixo de 360 x 640 e escalado para a tela.
+const DESIGN = Object.freeze({ w: 360, h: 640 });
+
+const PHASE = Object.freeze({ TITLE: 'title', PLAY: 'play', OVER: 'over' });
+
+const GRID = 8;
+const TRAY_SIZE = 3;
+
+// Tabuleiro: canto de cima a esquerda e tamanho de cada casa.
+const BOARD = Object.freeze({ x: 20, y: 104, cell: 40, size: 320 });
+
+// Bandeja com as tres pecas oferecidas.
+const TRAY = Object.freeze({
+  slots: Object.freeze([64, 180, 296]),
+  y: 524,
+  cell: 22,
+  top: 456,
+  bottom: 592,
+  halfWidth: 57,
+});
+
+const CONFIG = Object.freeze({
+  pointsPerCell: 1,
+  pointsPerLine: 10,
+  clearAllBonus: 50,
+  reviveRows: 3,
+  reviveCols: 3,
+  interstitialEveryRuns: 2,
+  maxFrameSeconds: 0.05,
+  maxScore: 1000000000,
+  saveVersion: 1,
+});
+
+// Tempos e distancias das animacoes e do arrasto.
+const FEEL = Object.freeze({
+  liftPixels: 46,
+  liftSeconds: 0.12,
+  returnSeconds: 0.2,
+  popSeconds: 0.3,
+  dealSeconds: 0.36,
+  dealStagger: 0.07,
+  clearStagger: 0.035,
+  tileSeconds: 0.3,
+  overCardDelay: 0.9,
+  overInputDelay: 1.4,
+  toastSeconds: 2.2,
+  shakePixels: 5,
+  shakePerLine: 0.4,
+  scoreCatchUp: 9,
+  maxFx: 460,
+});
+
+const REWARD_ID_REVIVE = 'revive-crystals';
+
+// Ajudantes de desenho usados por todos os modulos visuais.
+const FONT_STACK = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
+const hsl = ([h, s, l], lightShift = 0, alpha = 1) =>
+  `hsl(${h} ${s}% ${Math.min(100, Math.max(0, l + lightShift))}% / ${alpha})`;
+
+const roundRectPath = (ctx, x, y, w, h, radius) => {
+  const r = Math.min(radius, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+};
+
+const drawText = (ctx, text, x, y, size, options = {}) => {
+  const { color = '#ffffff', weight = 800, align = 'center', shadow = true } = options;
+  ctx.font = `${weight} ${Math.round(size)}px ${FONT_STACK}`;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'middle';
+  if (shadow) {
+    ctx.fillStyle = 'rgba(20, 8, 50, 0.45)';
+    ctx.fillText(text, x, y + Math.max(1, size * 0.07));
+  }
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+};
+
+// Reduz o tamanho da fonte ate o texto caber na largura dada.
+const fitText = (ctx, text, maxWidth, size, weight = 800) => {
+  ctx.font = `${weight} ${Math.round(size)}px ${FONT_STACK}`;
+  const width = ctx.measureText(text).width;
+  return width <= maxWidth ? size : size * (maxWidth / width);
+};
+
+// Desenho de um cristal lapidado: base escura, quatro facetas, mesa no centro e brilhos.
+const TAU = Math.PI * 2;
+
+const facet = (ctx, points, fill) => {
+  ctx.beginPath();
+  points.forEach(([x, y], index) => (index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+};
+
+// Estrela de quatro pontas usada nos brilhos.
+const drawSparkle = (ctx, x, y, radius, alpha = 1) => {
+  if (alpha <= 0 || radius <= 0) return;
+  const thin = radius * 0.22;
+  ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+  ctx.beginPath();
+  ctx.moveTo(x, y - radius);
+  ctx.quadraticCurveTo(x + thin, y - thin, x + radius, y);
+  ctx.quadraticCurveTo(x + thin, y + thin, x, y + radius);
+  ctx.quadraticCurveTo(x - thin, y + thin, x - radius, y);
+  ctx.quadraticCurveTo(x - thin, y - thin, x, y - radius);
+  ctx.fill();
+};
+
+const drawFacets = (ctx, color, o, i) => {
+  facet(ctx, [[-o, -o], [o, -o], [i, -i], [-i, -i]], hsl(color, 20));
+  facet(ctx, [[-o, -o], [-i, -i], [-i, i], [-o, o]], hsl(color, 7));
+  facet(ctx, [[o, -o], [o, o], [i, i], [i, -i]], hsl(color, -11));
+  facet(ctx, [[-o, o], [-i, i], [i, i], [o, o]], hsl(color, -20));
+  const table = ctx.createLinearGradient(-i, -i, i, i);
+  table.addColorStop(0, hsl(color, 14));
+  table.addColorStop(1, hsl(color, -5));
+  ctx.fillStyle = table;
+  ctx.fillRect(-i, -i, i * 2, i * 2);
+  // Reflexo na mesa e ponto de luz no canto.
+  facet(ctx, [[-i, -i], [i * 0.5, -i], [-i, i * 0.5]], 'rgba(255, 255, 255, 0.3)');
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.beginPath();
+  ctx.arc(-o * 0.76, -o * 0.76, o * 0.085, 0, TAU);
+  ctx.fill();
+};
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} x canto esquerdo da casa
+ * @param {number} y canto de cima da casa
+ * @param {number} size lado da casa
+ * @param {number[]} color [matiz, saturacao, luz]
+ * @param {{alpha?: number, flash?: number, scale?: number, squash?: number, glow?: number}} options
+ */
+const drawGem = (ctx, x, y, size, color, options = {}) => {
+  const { alpha = 1, flash = 0, scale = 1, squash = 0, glow = 0 } = options;
+  if (alpha <= 0 || scale <= 0) return;
+  const half = size * 0.465;
+  const radius = half * 0.34;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.translate(x + size / 2, y + size / 2);
+  ctx.scale(scale * (1 + squash), scale * (1 - squash));
+  if (glow > 0) {
+    ctx.shadowColor = hsl(color, 12, glow);
+    ctx.shadowBlur = size * 0.5;
+  }
+  roundRectPath(ctx, -half, -half, half * 2, half * 2, radius);
+  ctx.fillStyle = hsl(color, -27);
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  drawFacets(ctx, color, half * 0.86, half * 0.48);
+  roundRectPath(ctx, -half, -half, half * 2, half * 2, radius);
+  ctx.strokeStyle = hsl(color, 24, 0.55);
+  ctx.lineWidth = Math.max(0.6, size * 0.03);
+  ctx.stroke();
+  if (flash > 0) {
+    ctx.fillStyle = `rgba(255, 255, 255, ${Math.min(1, flash)})`;
+    ctx.fill();
+  }
+  ctx.restore();
+};
+
+// Pecas do jogo. Cada familia tem a sua cor de cristal [matiz, saturacao, luz] e um peso no sorteio.
+// `turns` diz quantas rotacoes de 90 graus sao diferentes entre si.
+const FAMILIES = Object.freeze([
+  { name: 'dot', color: [48, 92, 58], weight: 2, turns: 1, cells: [[0, 0]] },
+  { name: 'duo', color: [158, 72, 46], weight: 4, turns: 2, cells: [[0, 0], [1, 0]] },
+  { name: 'i3', color: [196, 88, 52], weight: 6, turns: 2, cells: [[0, 0], [1, 0], [2, 0]] },
+  { name: 'i4', color: [222, 86, 60], weight: 5, turns: 2, cells: [[0, 0], [1, 0], [2, 0], [3, 0]] },
+  { name: 'i5', color: [262, 82, 64], weight: 4, turns: 2, cells: [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]] },
+  { name: 'o2', color: [32, 94, 56], weight: 6, turns: 1, cells: [[0, 0], [1, 0], [0, 1], [1, 1]] },
+  { name: 'o3', color: [350, 84, 58], weight: 3, turns: 1, cells: [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1], [0, 2], [1, 2], [2, 2]] },
+  { name: 'corner', color: [84, 74, 48], weight: 6, turns: 4, cells: [[0, 0], [0, 1], [1, 1]] },
+  { name: 'l', color: [14, 90, 58], weight: 5, turns: 4, cells: [[0, 0], [0, 1], [0, 2], [1, 2]] },
+  { name: 'j', color: [176, 80, 44], weight: 5, turns: 4, cells: [[1, 0], [1, 1], [1, 2], [0, 2]] },
+  { name: 't', color: [292, 76, 60], weight: 5, turns: 4, cells: [[0, 0], [1, 0], [2, 0], [1, 1]] },
+  { name: 's', color: [128, 66, 48], weight: 3, turns: 2, cells: [[1, 0], [2, 0], [0, 1], [1, 1]] },
+  { name: 'z', color: [326, 84, 62], weight: 3, turns: 2, cells: [[0, 0], [1, 0], [1, 1], [2, 1]] },
+  { name: 'bigCorner', color: [240, 78, 68], weight: 4, turns: 4, cells: [[0, 0], [0, 1], [0, 2], [1, 2], [2, 2]] },
+]);
+
+// Leva a peca para encostar no canto (0, 0) e ordena as casas.
+const normalize = (cells) => {
+  const minCol = Math.min(...cells.map(([col]) => col));
+  const minRow = Math.min(...cells.map(([, row]) => row));
+  return cells
+    .map(([col, row]) => [col - minCol, row - minRow])
+    .sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+};
+
+const rotate = (cells, turns) =>
+  (turns === 0 ? normalize(cells) : rotate(cells.map(([col, row]) => [-row, col]), turns - 1));
+
+const freezeCells = (cells) => Object.freeze(cells.map((cell) => Object.freeze(cell)));
+
+// Cor do cristal pelo numero guardado no tabuleiro (1 em diante; 0 e casa vazia).
+const PALETTE = Object.freeze(FAMILIES.map((family) => Object.freeze(family.color)));
+const gemColor = (colorId) => PALETTE[(colorId - 1) % PALETTE.length];
+
+const SHAPES = Object.freeze(
+  FAMILIES.flatMap((family, familyIndex) =>
+    Array.from({ length: family.turns }, (_, turn) => {
+      const cells = rotate(family.cells, turn);
+      return {
+        family: family.name,
+        color: familyIndex + 1,
+        weight: family.weight / family.turns,
+        w: Math.max(...cells.map(([col]) => col)) + 1,
+        h: Math.max(...cells.map(([, row]) => row)) + 1,
+        cells: freezeCells(cells),
+      };
+    })).map((shape, id) => Object.freeze({ id, ...shape })),
+);
+
+// Cenario parado: a caverna, os cristais das paredes, o tabuleiro de pedra e a bandeja.
+// E desenhado uma vez num canvas auxiliar e depois so copiado a cada quadro.
+
+const FRAME = 10;
+const SHARDS = Object.freeze([[-0.78, 30, 10], [0.7, 34, 10], [-0.38, 50, 13], [0.34, 46, 12], [0, 68, 16]]);
+
+const noise = (index, salt) => {
+  const value = Math.sin(index * 127.1 + salt * 311.7) * 43758.5453;
+  return value - Math.floor(value);
+};
+
+const drawRock = (ctx, b) => {
+  const fill = ctx.createLinearGradient(0, b.y, 0, b.y + b.h);
+  fill.addColorStop(0, '#090716');
+  fill.addColorStop(0.45, '#17123a');
+  fill.addColorStop(1, '#0a1626');
+  ctx.fillStyle = fill;
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+  for (let i = 0; i < 22; i += 1) {
+    const x = b.x + noise(i, 1) * b.w;
+    const y = b.y + noise(i, 2) * b.h;
+    const radius = 50 + noise(i, 3) * 90;
+    const glow = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    glow.addColorStop(0, `hsl(${220 + noise(i, 4) * 80} 70% 55% / ${0.05 + noise(i, 5) * 0.06})`);
+    glow.addColorStop(1, 'hsl(240 70% 55% / 0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  }
+  // Veios escuros na rocha.
+  ctx.strokeStyle = 'rgba(4, 3, 14, 0.5)';
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 16; i += 1) {
+    const x = b.x + noise(i, 6) * b.w;
+    const y = b.y + noise(i, 7) * b.h;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + (noise(i, 8) - 0.5) * 50, y + 14 + noise(i, 9) * 24);
+    ctx.lineTo(x + (noise(i, 10) - 0.5) * 70, y + 34 + noise(i, 11) * 40);
+    ctx.stroke();
+  }
+};
+
+// Estalactites no teto e estalagmites no chao, como silhuetas.
+const drawSpikes = (ctx, b) => {
+  const count = Math.ceil(b.w / 22) + 1;
+  [[b.y, 1, 12], [b.y + b.h, -1, 13]].forEach(([edge, direction, salt]) => {
+    for (let i = 0; i < count; i += 1) {
+      const x = b.x + i * 22 + (noise(i, salt) - 0.5) * 14;
+      const width = 16 + noise(i, salt + 2) * 22;
+      const length = 10 + noise(i, salt + 4) ** 2 * 34;
+      ctx.fillStyle = `hsl(250 40% ${5 + noise(i, salt + 6) * 5}%)`;
+      ctx.beginPath();
+      ctx.moveTo(x - width / 2, edge);
+      ctx.lineTo(x + (noise(i, salt + 8) - 0.5) * 6, edge + length * direction);
+      ctx.lineTo(x + width / 2, edge);
+      ctx.closePath();
+      ctx.fill();
+    }
+  });
+};
+
+const drawShard = (ctx, hue, length, width) => {
+  const shoulder = -length * 0.74;
+  [[-1, 62, 68], [1, 40, 62]].forEach(([side, light, sat]) => {
+    ctx.fillStyle = `hsl(${hue} ${sat}% ${light}%)`;
+    ctx.beginPath();
+    ctx.moveTo(0, 2);
+    ctx.lineTo((side * width) / 2, 2);
+    ctx.lineTo((side * width) / 2, shoulder);
+    ctx.lineTo(0, -length);
+    ctx.closePath();
+    ctx.fill();
+  });
+  ctx.strokeStyle = `hsl(${hue} 90% 86% / 0.7)`;
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(0, 2);
+  ctx.lineTo(0, -length);
+  ctx.stroke();
+};
+
+const drawCluster = (ctx, spot) => {
+  const glow = ctx.createRadialGradient(spot.gx, spot.gy, 0, spot.gx, spot.gy, spot.r);
+  glow.addColorStop(0, `hsl(${spot.hue} 85% 62% / 0.4)`);
+  glow.addColorStop(1, `hsl(${spot.hue} 85% 62% / 0)`);
+  ctx.fillStyle = glow;
+  ctx.fillRect(spot.gx - spot.r, spot.gy - spot.r, spot.r * 2, spot.r * 2);
+  SHARDS.forEach(([lean, length, width], index) => {
+    ctx.save();
+    ctx.translate(spot.x, spot.y);
+    ctx.rotate(spot.angle + lean);
+    drawShard(ctx, spot.hue + (index - 2) * 7, length * spot.size, width * spot.size);
+    ctx.restore();
+  });
+};
+
+// Grupos de cristais presos aos cantos da tela. Em telas largas ou altas aparecem grupos extras.
+const clusterSpots = (b) => {
+  const right = b.x + b.w;
+  const bottom = b.y + b.h;
+  const side = -b.x;
+  const corners = [
+    { x: b.x + 22, y: bottom + 4, angle: 0.3, size: 1.1, hue: 188 },
+    { x: right - 22, y: bottom + 4, angle: -0.3, size: 1.1, hue: 282 },
+    { x: b.x + 14, y: b.y - 4, angle: Math.PI - 0.35, size: 0.85, hue: 312 },
+    { x: right - 14, y: b.y - 4, angle: Math.PI + 0.35, size: 0.85, hue: 168 },
+  ];
+  const big = Math.min(2.6, side / 62);
+  const wide = side > 60 ? [
+    { x: b.x + side * 0.5, y: bottom + 6, angle: 0.1, size: big, hue: 205 },
+    { x: right - side * 0.5, y: bottom + 6, angle: -0.1, size: big, hue: 265 },
+    { x: b.x + side * 0.45, y: b.y - 6, angle: Math.PI + 0.12, size: big * 0.7, hue: 300 },
+    { x: right - side * 0.45, y: b.y - 6, angle: Math.PI - 0.12, size: big * 0.7, hue: 180 },
+    { x: b.x - 6, y: b.y + b.h * 0.5, angle: Math.PI / 2 + 0.15, size: big * 0.6, hue: 230 },
+    { x: right + 6, y: b.y + b.h * 0.52, angle: -Math.PI / 2 - 0.15, size: big * 0.6, hue: 195 },
+  ] : [];
+  const tall = -b.y > 40 ? [
+    { x: b.x + b.w * 0.62, y: bottom + 6, angle: 0.06, size: Math.min(1.5, -b.y / 50), hue: 225 },
+    { x: b.x + b.w * 0.36, y: b.y - 6, angle: Math.PI - 0.05, size: Math.min(1.2, -b.y / 60), hue: 255 },
+  ] : [];
+  return [...corners, ...wide, ...tall].map((spot, index) => ({
+    ...spot,
+    gx: spot.x + Math.sin(spot.angle) * 34 * spot.size,
+    gy: spot.y - Math.cos(spot.angle) * 34 * spot.size,
+    r: 84 * spot.size,
+    phase: index * 1.7,
+  }));
+};
+
+const drawCells = (ctx) => {
+  for (let index = 0; index < GRID * GRID; index += 1) {
+    const x = BOARD.x + (index % GRID) * BOARD.cell;
+    const y = BOARD.y + Math.floor(index / GRID) * BOARD.cell;
+    // Casa cavada: sombra em cima, luz embaixo.
+    roundRectPath(ctx, x + 1.5, y + 1.5, BOARD.cell - 3, BOARD.cell - 3, 7);
+    ctx.fillStyle = 'rgba(160, 170, 255, 0.13)';
+    ctx.fill();
+    const well = ctx.createLinearGradient(0, y, 0, y + BOARD.cell);
+    well.addColorStop(0, '#0d0b1f');
+    well.addColorStop(1, '#1b1838');
+    roundRectPath(ctx, x + 1.5, y + 1.5, BOARD.cell - 3, BOARD.cell - 4.2, 7);
+    ctx.fillStyle = well;
+    ctx.fill();
+    roundRectPath(ctx, x + 3.5, y + 4.5, BOARD.cell - 7, BOARD.cell - 8, 5);
+    ctx.fillStyle = 'rgba(54, 50, 108, 0.5)';
+    ctx.fill();
+  }
+};
+
+const drawBoard = (ctx) => {
+  const x = BOARD.x - FRAME;
+  const y = BOARD.y - FRAME;
+  const size = BOARD.size + FRAME * 2;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+  ctx.shadowBlur = 22;
+  ctx.shadowOffsetY = 8;
+  const stone = ctx.createLinearGradient(0, y, 0, y + size);
+  stone.addColorStop(0, '#5b5682');
+  stone.addColorStop(1, '#302c52');
+  roundRectPath(ctx, x, y, size, size, 16);
+  ctx.fillStyle = stone;
+  ctx.fill();
+  ctx.restore();
+  // Chanfro: luz no alto, sombra embaixo.
+  roundRectPath(ctx, x + 1, y + 1, size - 2, size - 2, 15);
+  ctx.strokeStyle = 'rgba(210, 205, 255, 0.4)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  roundRectPath(ctx, x + 2, y + 4, size - 4, size - 5, 14);
+  ctx.strokeStyle = 'rgba(12, 10, 34, 0.5)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  for (let i = 0; i < 70; i += 1) {
+    ctx.fillStyle = `rgba(${noise(i, 20) > 0.5 ? '220, 215, 255' : '10, 8, 30'}, ${0.08 + noise(i, 21) * 0.12})`;
+    ctx.fillRect(x + 3 + noise(i, 22) * (size - 6), y + 3 + noise(i, 23) * (size - 6), 1.6, 1.2);
+  }
+  roundRectPath(ctx, BOARD.x - 3, BOARD.y - 3, BOARD.size + 6, BOARD.size + 6, 9);
+  ctx.fillStyle = '#100e24';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  drawCells(ctx);
+};
+
+const drawTrayLedge = (ctx) => {
+  const x = BOARD.x - FRAME;
+  const w = BOARD.size + FRAME * 2;
+  const h = TRAY.bottom - TRAY.top;
+  const fill = ctx.createLinearGradient(0, TRAY.top, 0, TRAY.bottom);
+  fill.addColorStop(0, 'rgba(34, 30, 72, 0.72)');
+  fill.addColorStop(1, 'rgba(16, 14, 40, 0.72)');
+  roundRectPath(ctx, x, TRAY.top, w, h, 18);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(150, 160, 255, 0.22)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  TRAY.slots.forEach((center) => {
+    const glow = ctx.createRadialGradient(center, TRAY.y, 4, center, TRAY.y, 56);
+    glow.addColorStop(0, 'rgba(120, 140, 255, 0.13)');
+    glow.addColorStop(1, 'rgba(120, 140, 255, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(center, TRAY.y, 56, 0, TAU);
+    ctx.fill();
+  });
+};
+
+const drawVignette = (ctx, b) => {
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  const shade = ctx.createRadialGradient(cx, cy, Math.min(b.w, b.h) * 0.42, cx, cy, Math.hypot(b.w, b.h) * 0.56);
+  shade.addColorStop(0, 'rgba(3, 2, 12, 0)');
+  shade.addColorStop(1, 'rgba(3, 2, 12, 0.62)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+};
+
+// `view`: { width, height, ratio, scale, ox, oy } em pixels de tela.
+// Devolve o canvas pronto e os pontos de luz que o ambiente anima por cima.
+const buildWorld = (view) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(view.width * view.ratio);
+  canvas.height = Math.round(view.height * view.ratio);
+  const ctx = canvas.getContext('2d');
+  const k = view.ratio * view.scale;
+  ctx.setTransform(k, 0, 0, k, view.ox * view.ratio, view.oy * view.ratio);
+  const bounds = { x: -view.ox / view.scale, y: -view.oy / view.scale, w: view.width / view.scale, h: view.height / view.scale };
+  const glows = clusterSpots(bounds);
+
+  drawRock(ctx, bounds);
+  glows.forEach((spot) => drawCluster(ctx, spot));
+  drawSpikes(ctx, bounds);
+  drawVignette(ctx, bounds);
+  drawTrayLedge(ctx);
+  drawBoard(ctx);
+  return { canvas, glows, center: DESIGN.w / 2 };
+};
+
+
+const c=document.querySelector('canvas'),ctx=c.getContext('2d');
+const W=c.width,H=c.height,P=H>W;
+function ellipse(x,y,rx,ry,color){ctx.fillStyle=color;ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.fill()}
+function glow(x,y,r,color){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,color);g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.fillRect(x-r,y-r,r*2,r*2)}
+function star(x,y,r,color='#fff6ba'){ctx.save();ctx.translate(x,y);ctx.fillStyle=color;ctx.shadowColor=color;ctx.shadowBlur=20;ctx.beginPath();for(let i=0;i<8;i++){let a=i*Math.PI/4,rr=i%2?r*.19:r;ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr)}ctx.closePath();ctx.fill();ctx.restore()}
+function burst(x,y,r,color){ctx.save();ctx.translate(x,y);for(let i=0;i<26;i++){ctx.rotate(Math.PI*2/26);ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(r,-r*.028);ctx.lineTo(r,r*.028);ctx.fill()}ctx.restore()}
+function trail(ax,ay,bx,by,cx,cy,color,width){ctx.save();ctx.lineCap='round';ctx.shadowColor=color;ctx.shadowBlur=22;ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(ax,ay);ctx.quadraticCurveTo(bx,by,cx,cy);ctx.stroke();ctx.strokeStyle='#fffde6';ctx.lineWidth=width*.28;ctx.stroke();ctx.restore()}
+function title(lines,ys,maxWidth,size,x){ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineJoin='round';lines.forEach((line,i)=>{ctx.font=`1000 ${size}px "Arial Black", "Segoe UI", sans-serif`;let s=size*Math.min(1,maxWidth/ctx.measureText(line).width);ctx.font=`1000 ${s}px "Arial Black", "Segoe UI", sans-serif`;ctx.shadowColor='#9d56ff';ctx.shadowBlur=30;ctx.strokeStyle='#190b38';ctx.lineWidth=23;ctx.strokeText(line,x,ys[i]+8);ctx.shadowBlur=0;ctx.strokeStyle='#190b38';ctx.lineWidth=17;ctx.strokeText(line,x,ys[i]);ctx.strokeStyle='#ffe5a3';ctx.lineWidth=3;ctx.strokeText(line,x,ys[i]);let g=ctx.createLinearGradient(0,ys[i]-s*.5,0,ys[i]+s*.5);g.addColorStop(0,'#ffffff');g.addColorStop(.45,'#fff5b9');g.addColorStop(1,'#ffbb36');ctx.fillStyle=g;ctx.fillText(line,x,ys[i])});ctx.restore()}
+function vignette(){let g=ctx.createRadialGradient(W*.52,H*.55,W*.25,W*.5,H*.5,Math.max(W,H)*.7);g.addColorStop(0,'transparent');g.addColorStop(1,'#06051b8a');ctx.fillStyle=g;ctx.fillRect(0,0,W,H)}
+function scene(){ctx.save();ctx.translate(P?0:540,P?490:55);ctx.scale(P?1.08:.68,P?1.08:.68)}
+
+function poly(points,col){ctx.fillStyle=col;ctx.beginPath();points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();ctx.fill()}
+function line(x,y,a,b,col,w){ctx.strokeStyle=col;ctx.lineWidth=w;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(a,b);ctx.stroke()}
+function rr(x,y,w,h,r,col){roundRectPath(ctx,x,y,w,h,r);ctx.fillStyle=col;ctx.fill()}
+function art(){ctx.save();ctx.translate(P?40:570,P?485:35);ctx.scale(P?1:.65,P?1:.65)}
+function heading(a,b){if(P)title([a,b],[185,340],850,150,540);else title([a,b],[225,360],435,105,315)}
+
+
+let bg=ctx.createLinearGradient(0,0,W,H);bg.addColorStop(0,'#100c29');bg.addColorStop(.6,'#29205c');bg.addColorStop(1,'#071523');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);glow(W*.6,H*.65,800,'#5c3d9b66');
+art();burst(500,515,1250,'#b9a4ff16');
+for(const [x,y,hue,size,angle] of [[80,1040,188,5,.1],[940,1080,282,5,-.2],[30,160,312,3,2.6],[950,180,168,3,3.5]])drawCluster(ctx,{x,y,gx:x,gy:y-130,r:300,hue,size,angle});
+ctx.save();ctx.translate(505,650);ctx.rotate(-.13);ctx.scale(2.48,2.25);ctx.translate(-180,-264);drawBoard(ctx);
+const grid=[
+[0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0],[0,0,0,0,6,6,0,0],[2,2,0,0,6,6,0,0],[4,4,4,4,0,0,8,0],[3,3,3,11,11,11,8,8],[9,0,0,0,0,0,0,10],[9,9,13,13,0,10,10,10]];
+grid.forEach((row,r)=>row.forEach((v,c)=>{if(v)drawGem(ctx,20+c*40,104+r*40,40,gemColor(v))}));
+for(let c=0;c<8;c++)drawGem(ctx,20+c*40,344,40,[196,88,52],{flash:.55});
+trail(12,364,180,350,350,364,'#bfffff',10);ctx.restore();
+glow(490,850,350,'#61eaffaa');burst(490,850,650,'#b4ffff33');
+for(let i=0;i<35;i++){let x=80+(i*149%860),y=710+(i*91%350);ctx.save();ctx.translate(x,y);ctx.rotate(i*1.7);poly([[0,-22],[15,0],[3,23],[-12,7]],i%3?'#83f3ff':'#fff8ce');ctx.restore()}
+glow(565,230,300,'#f075ff66');ctx.save();ctx.translate(370,135);ctx.rotate(.12);[[0,0],[1,0],[2,0],[1,1]].forEach(([c,r])=>drawGem(ctx,c*119,r*119,119,[292,76,60]));ctx.restore();
+trail(655,385,710,480,660,550,'#fbc7ff',10);
+[[200,250,26],[820,350,26],[300,900,30],[670,800,32],[790,1040,20]].forEach(s=>star(...s));ctx.restore();vignette();heading('BLOCOS','DE CRISTAL');
+
+</script>

@@ -1,0 +1,6 @@
+covers/blocos-de-cristal-portrait.png: 1080 x 1620
+covers/blocos-de-cristal-landscape.png: 1280 x 720
+covers/fusao-cosmica-portrait.png: 1080 x 1620
+covers/fusao-cosmica-landscape.png: 1280 x 720
+covers/corrida-nas-nuvens-portrait.png: 1080 x 1620
+covers/corrida-nas-nuvens-landscape.png: 1280 x 720

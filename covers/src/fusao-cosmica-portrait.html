@@ -1,0 +1,566 @@
+<!doctype html><meta charset="utf-8"><canvas width="1080" height="1620"></canvas><script>
+// Numeros de balanceamento. O jogo e desenhado num espaco fixo de 360 x 640 e escalado para a tela.
+const DESIGN = Object.freeze({ w: 360, h: 640 });
+
+const PHASE = Object.freeze({ TITLE: 'title', PLAY: 'play', OVER: 'over' });
+
+// Capsula de vidro: paredes e chao da fisica, linha de perigo e altura de onde o corpo e solto.
+const CAPSULE = Object.freeze({ left: 42, right: 318, floor: 606, top: 66, dangerY: 160, dropY: 118 });
+
+// Corpos celestes, do menor ao maior. `points` e o que vale criar aquele corpo numa fusao.
+const TIERS = Object.freeze([
+  { key: 'meteor', radius: 12, points: 0, color: [28, 40, 58] },
+  { key: 'moon', radius: 17, points: 2, color: [48, 30, 82] },
+  { key: 'rocky', radius: 23, points: 5, color: [14, 80, 62] },
+  { key: 'ocean', radius: 29, points: 9, color: [205, 90, 62] },
+  { key: 'ringed', radius: 36, points: 14, color: [42, 90, 66] },
+  { key: 'gas', radius: 44, points: 20, color: [24, 95, 64] },
+  { key: 'ice', radius: 53, points: 27, color: [180, 80, 68] },
+  { key: 'redStar', radius: 63, points: 35, color: [8, 100, 64] },
+  { key: 'blueStar', radius: 74, points: 44, color: [212, 100, 74] },
+  { key: 'galaxy', radius: 86, points: 55, color: [285, 90, 72] },
+].map((tier) => Object.freeze({ ...tier, color: Object.freeze(tier.color) })));
+
+const CONFIG = Object.freeze({
+  // Fisica
+  gravity: 1500,
+  fixedDt: 1 / 120,
+  maxSubsteps: 8,
+  iterations: 8,
+  restitution: 0.22,
+  bounceMinSpeed: 90,
+  friction: 0.08,
+  floorFriction: 0.02,
+  linearDamping: 0.4,
+  maxSpeed: 1300,
+  correction: 0.85,
+  slop: 0.02,
+  spinGrip: 0.12,
+  spinDamping: 1.5,
+  maxSpin: 12,
+  bumpSpeed: 150,
+  growSeconds: 0.18,
+  // Regras
+  mergeSlop: 2,
+  mergeKeepSpeed: 0.4,
+  galaxyBonus: 150,
+  dropWeights: Object.freeze([35, 30, 20, 10, 5]),
+  dropCooldown: 0.45,
+  dangerGraceSeconds: 1,
+  dangerSeconds: 1.5,
+  dangerCoolRate: 2,
+  reviveFraction: 1 / 3,
+  reviveClearance: 40,
+  // Controles e plataforma
+  aimKeySpeed: 230,
+  interstitialEveryRuns: 2,
+  maxFrameSeconds: 0.05,
+  saveVersion: 1,
+});
+
+const REWARD_ID_CONTINUE = 'continue-capsule';
+
+// Ajudantes de desenho usados por todos os modulos visuais.
+const FONT_STACK = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
+const hsl = ([h, s, l], lightShift = 0, alpha = 1) =>
+  `hsl(${h} ${s}% ${Math.min(100, Math.max(0, l + lightShift))}% / ${alpha})`;
+
+const roundRectPath = (ctx, x, y, w, h, radius) => {
+  const r = Math.min(radius, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+};
+
+const drawText = (ctx, text, x, y, size, options = {}) => {
+  const { color = '#ffffff', weight = 800, align = 'center', shadow = true } = options;
+  ctx.font = `${weight} ${Math.round(size)}px ${FONT_STACK}`;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'middle';
+  if (shadow) {
+    ctx.fillStyle = 'rgba(20, 8, 50, 0.45)';
+    ctx.fillText(text, x, y + Math.max(1, size * 0.07));
+  }
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+};
+
+// Reduz o tamanho da fonte ate o texto caber na largura dada.
+const fitText = (ctx, text, maxWidth, size, weight = 800) => {
+  ctx.font = `${weight} ${Math.round(size)}px ${FONT_STACK}`;
+  const width = ctx.measureText(text).width;
+  return width <= maxWidth ? size : size * (maxWidth / width);
+};
+
+// Pinceis usados para desenhar os corpos celestes. Tudo e desenhado em volta do ponto (0, 0).
+const TAU = Math.PI * 2;
+
+// Ruido fixo: o mesmo indice da sempre o mesmo valor entre 0 e 1.
+const noise = (index, salt) => {
+  const value = Math.sin(index * 127.1 + salt * 311.7) * 43758.5453;
+  return value - Math.floor(value);
+};
+
+const disc = (ctx, x, y, radius, fill) => {
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, TAU);
+  ctx.fill();
+};
+
+const blob = (ctx, x, y, rx, ry, angle, fill) => {
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.ellipse(x, y, rx, ry, angle, 0, TAU);
+  ctx.fill();
+};
+
+const clipDisc = (ctx, radius) => {
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, TAU);
+  ctx.clip();
+};
+
+// Bola com cor de base e uma borda um pouco mais escura. A luz vem depois, em `shade`.
+const ball = (ctx, r, color) => {
+  const fill = ctx.createRadialGradient(-r * 0.2, -r * 0.25, r * 0.1, 0, 0, r);
+  fill.addColorStop(0, hsl(color, 8));
+  fill.addColorStop(0.7, hsl(color));
+  fill.addColorStop(1, hsl(color, -12));
+  disc(ctx, 0, 0, r, fill);
+};
+
+const crater = (ctx, x, y, radius, color) => {
+  disc(ctx, x, y, radius, hsl(color, -16));
+  disc(ctx, x + radius * 0.12, y + radius * 0.16, radius * 0.78, hsl(color, -8));
+  ctx.strokeStyle = hsl(color, 14, 0.7);
+  ctx.lineWidth = Math.max(0.5, radius * 0.2);
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0.5, 2.4);
+  ctx.stroke();
+};
+
+// Faixas horizontais levemente onduladas. `stripes`: [[y, altura, cor]] em fracoes do raio.
+const bands = (ctx, r, stripes) => {
+  stripes.forEach(([y, height, fill], index) => {
+    const wave = r * 0.05 * (index % 2 === 0 ? 1 : -1);
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.moveTo(-r, y * r);
+    ctx.bezierCurveTo(-r * 0.4, y * r + wave, r * 0.4, y * r - wave, r, y * r);
+    ctx.lineTo(r, (y + height) * r);
+    ctx.bezierCurveTo(r * 0.4, (y + height) * r - wave, -r * 0.4, (y + height) * r + wave, -r, (y + height) * r);
+    ctx.closePath();
+    ctx.fill();
+  });
+};
+
+const eye = (ctx, x, y, size, ink, mood) => {
+  if (mood === 'sleepy') {
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = size * 0.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(x, y - size * 0.2, size, 0.25, Math.PI - 0.25);
+    ctx.stroke();
+    return;
+  }
+  blob(ctx, x, y, size, size * 1.15, 0, ink);
+  disc(ctx, x - size * 0.3, y - size * 0.4, size * 0.38, 'rgba(255, 255, 255, 0.95)');
+  disc(ctx, x + size * 0.3, y + size * 0.35, size * 0.18, 'rgba(255, 255, 255, 0.7)');
+};
+
+// Carinha simples. `options`: { ink, blush, mood: 'happy' | 'sleepy' | 'wow', y, scale }
+const face = (ctx, r, options = {}) => {
+  const { ink = '#2a1a4a', blush = 'rgba(255, 120, 150, 0.4)', mood = 'happy', y = 0, scale = 1 } = options;
+  const s = r * scale;
+  const cy = y * r;
+  blob(ctx, -s * 0.5, cy + s * 0.2, s * 0.15, s * 0.09, 0, blush);
+  blob(ctx, s * 0.5, cy + s * 0.2, s * 0.15, s * 0.09, 0, blush);
+  eye(ctx, -s * 0.28, cy, s * 0.1, ink, mood);
+  eye(ctx, s * 0.28, cy, s * 0.1, ink, mood);
+  ctx.strokeStyle = ink;
+  ctx.fillStyle = ink;
+  ctx.lineWidth = Math.max(0.6, s * 0.055);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  if (mood === 'wow') {
+    ctx.ellipse(0, cy + s * 0.24, s * 0.08, s * 0.1, 0, 0, TAU);
+    ctx.fill();
+  } else {
+    ctx.arc(0, cy + s * 0.1, s * 0.14, 0.35, Math.PI - 0.35);
+    ctx.stroke();
+  }
+};
+
+// Luz e sombra por cima do corpo. Nao gira junto com ele, entao a luz vem sempre do mesmo lado.
+const shade = (ctx, r, strength = 1) => {
+  const light = ctx.createRadialGradient(-r * 0.38, -r * 0.42, r * 0.05, -r * 0.1, -r * 0.1, r * 1.1);
+  light.addColorStop(0, `rgba(255, 255, 255, ${0.42 * strength})`);
+  light.addColorStop(0.4, 'rgba(255, 255, 255, 0)');
+  light.addColorStop(0.72, 'rgba(10, 0, 40, 0)');
+  light.addColorStop(1, `rgba(10, 0, 40, ${0.5 * strength})`);
+  disc(ctx, 0, 0, r, light);
+  blob(ctx, -r * 0.4, -r * 0.5, r * 0.26, r * 0.13, -0.65, `rgba(255, 255, 255, ${0.6 * strength})`);
+  disc(ctx, -r * 0.66, -r * 0.2, r * 0.05, `rgba(255, 255, 255, ${0.5 * strength})`);
+  ctx.strokeStyle = `rgba(255, 255, 255, ${0.22 * strength})`;
+  ctx.lineWidth = Math.max(0.6, r * 0.045);
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.93, 0.35, 1.25);
+  ctx.stroke();
+};
+
+// Brilho em volta do corpo (estrelas e galaxia). `reach` e ate onde vai, em raios.
+const halo = (ctx, r, color, reach, alpha = 0.6) => {
+  const glow = ctx.createRadialGradient(0, 0, r * 0.75, 0, 0, r * reach);
+  glow.addColorStop(0, hsl(color, 0, alpha));
+  glow.addColorStop(1, hsl(color, 0, 0));
+  disc(ctx, 0, 0, r * reach, glow);
+};
+
+// Desenho dos corpos rochosos e dos planetas (niveis 0 a 6). Cada funcao desenha um corpo de raio `r` em (0, 0).
+const ROCK = [28, 32, 48];
+const MOON = [48, 26, 80];
+const RUST = [14, 72, 54];
+const SEA = [205, 82, 52];
+const LAND = [128, 52, 46];
+const SAND = [42, 78, 64];
+const AMBER = [26, 88, 60];
+const FROST = [182, 62, 62];
+
+const within = (ctx, r, paint) => {
+  ctx.save();
+  clipDisc(ctx, r);
+  paint();
+  ctx.restore();
+};
+
+const drawMeteor = (ctx, r) => {
+  ball(ctx, r, ROCK);
+  within(ctx, r, () => {
+    blob(ctx, r * 0.5, r * 0.55, r * 0.6, r * 0.4, 0.5, hsl(ROCK, -9));
+    blob(ctx, -r * 0.6, -r * 0.55, r * 0.5, r * 0.3, -0.6, hsl(ROCK, 9));
+    crater(ctx, -r * 0.5, r * 0.5, r * 0.2, ROCK);
+    crater(ctx, r * 0.55, -r * 0.5, r * 0.16, ROCK);
+    crater(ctx, r * 0.62, r * 0.42, r * 0.11, ROCK);
+  });
+  face(ctx, r, { ink: '#2b1608', blush: 'rgba(255, 140, 90, 0.45)', scale: 1.15, y: -0.08 });
+};
+
+const drawMoon = (ctx, r) => {
+  ball(ctx, r, MOON);
+  within(ctx, r, () => {
+    blob(ctx, -r * 0.45, -r * 0.5, r * 0.42, r * 0.3, 0.4, hsl(MOON, -10, 0.7));
+    blob(ctx, r * 0.5, r * 0.55, r * 0.5, r * 0.3, -0.3, hsl(MOON, -8, 0.7));
+    crater(ctx, r * 0.55, -r * 0.45, r * 0.2, MOON);
+    crater(ctx, -r * 0.62, r * 0.4, r * 0.15, MOON);
+    crater(ctx, r * 0.1, r * 0.68, r * 0.12, MOON);
+    crater(ctx, -r * 0.1, -r * 0.72, r * 0.1, MOON);
+  });
+  face(ctx, r, { ink: '#4a4066', mood: 'sleepy', y: -0.02 });
+};
+
+const drawRocky = (ctx, r) => {
+  ball(ctx, r, RUST);
+  within(ctx, r, () => {
+    blob(ctx, -r * 0.5, r * 0.45, r * 0.55, r * 0.28, 0.5, hsl(RUST, -13));
+    blob(ctx, r * 0.55, -r * 0.3, r * 0.4, r * 0.22, -0.5, hsl(RUST, -11));
+    blob(ctx, r * 0.4, r * 0.62, r * 0.3, r * 0.14, 0.2, hsl(RUST, 10));
+    blob(ctx, 0, -r * 0.98, r * 0.6, r * 0.24, 0, 'rgba(255, 244, 235, 0.92)');
+    blob(ctx, 0, r * 1.02, r * 0.45, r * 0.16, 0, 'rgba(255, 244, 235, 0.8)');
+    crater(ctx, -r * 0.6, -r * 0.35, r * 0.12, RUST);
+  });
+  face(ctx, r, { ink: '#3d0f0a', blush: 'rgba(255, 200, 120, 0.5)', y: 0.02 });
+};
+
+const drawOcean = (ctx, r) => {
+  ball(ctx, r, SEA);
+  within(ctx, r, () => {
+    blob(ctx, -r * 0.55, -r * 0.4, r * 0.42, r * 0.3, 0.7, hsl(LAND));
+    blob(ctx, -r * 0.72, -r * 0.05, r * 0.24, r * 0.3, 0.2, hsl(LAND, 6));
+    blob(ctx, r * 0.6, r * 0.45, r * 0.4, r * 0.26, -0.6, hsl(LAND));
+    blob(ctx, r * 0.3, r * 0.75, r * 0.3, r * 0.16, 0.3, hsl(LAND, -6));
+    blob(ctx, r * 0.55, -r * 0.62, r * 0.22, r * 0.12, -0.3, hsl(LAND, 8));
+    blob(ctx, r * 0.35, -r * 0.42, r * 0.4, r * 0.08, -0.15, 'rgba(255, 255, 255, 0.75)');
+    blob(ctx, -r * 0.3, r * 0.55, r * 0.38, r * 0.07, 0.12, 'rgba(255, 255, 255, 0.7)');
+    blob(ctx, -r * 0.1, -r * 0.8, r * 0.3, r * 0.07, 0.05, 'rgba(255, 255, 255, 0.65)');
+  });
+  face(ctx, r, { ink: '#0b2350', y: 0.02 });
+};
+
+const ringHalf = (ctx, r, from, to) => {
+  [[0.2, hsl([36, 70, 58], 0, 0.95)], [0.11, hsl([44, 90, 82], 0, 0.95)], [0.03, hsl([30, 60, 42], 0, 0.8)]].forEach(([width, color]) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = r * width;
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.12, r * 1.16, r * 0.3, -0.3, from, to);
+    ctx.stroke();
+  });
+};
+
+const drawRinged = (ctx, r) => {
+  ringHalf(ctx, r, Math.PI, TAU);
+  ball(ctx, r * 0.9, SAND);
+  within(ctx, r * 0.9, () => {
+    bands(ctx, r, [
+      [-0.72, 0.16, hsl(SAND, -10, 0.8)], [-0.42, 0.1, hsl(SAND, 12, 0.8)],
+      [0.36, 0.14, hsl(SAND, -12, 0.8)], [0.62, 0.12, hsl(SAND, 10, 0.7)],
+    ]);
+  });
+  face(ctx, r, { ink: '#4a2a08', y: -0.2, scale: 0.9 });
+  ringHalf(ctx, r, 0, Math.PI);
+};
+
+const drawGasGiant = (ctx, r) => {
+  ball(ctx, r, AMBER);
+  within(ctx, r, () => {
+    bands(ctx, r, [
+      [-0.86, 0.2, hsl([18, 70, 42], 0, 0.85)], [-0.58, 0.14, hsl([40, 95, 82], 0, 0.9)],
+      [-0.36, 0.1, hsl([14, 80, 48], 0, 0.8)], [0.3, 0.16, hsl([44, 95, 84], 0, 0.9)],
+      [0.52, 0.14, hsl([16, 75, 44], 0, 0.85)], [0.76, 0.2, hsl([34, 85, 70], 0, 0.8)],
+    ]);
+    blob(ctx, r * 0.5, r * 0.4, r * 0.24, r * 0.14, -0.1, hsl([4, 85, 48]));
+    blob(ctx, r * 0.47, r * 0.38, r * 0.1, r * 0.045, -0.1, hsl([10, 90, 58]));
+  });
+  face(ctx, r, { ink: '#4a1a05', y: -0.05, scale: 0.85 });
+};
+
+const sparkle = (ctx, x, y, size) => {
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.beginPath();
+  ctx.moveTo(x, y - size);
+  ctx.quadraticCurveTo(x, y, x + size, y);
+  ctx.quadraticCurveTo(x, y, x, y + size);
+  ctx.quadraticCurveTo(x, y, x - size, y);
+  ctx.quadraticCurveTo(x, y, x, y - size);
+  ctx.fill();
+};
+
+const drawIceGiant = (ctx, r) => {
+  ball(ctx, r, FROST);
+  within(ctx, r, () => {
+    bands(ctx, r, [
+      [-0.8, 0.18, hsl([195, 80, 82], 0, 0.6)], [-0.5, 0.1, hsl([170, 60, 48], 0, 0.5)],
+      [0.32, 0.12, hsl([200, 85, 84], 0, 0.6)], [0.58, 0.2, hsl([190, 60, 46], 0, 0.5)],
+    ]);
+    blob(ctx, 0, -r, r * 0.7, r * 0.22, 0, 'rgba(255, 255, 255, 0.8)');
+    for (let i = 0; i < 7; i += 1) {
+      const angle = noise(i, 3) * TAU;
+      const reach = (0.45 + noise(i, 4) * 0.4) * r;
+      sparkle(ctx, Math.cos(angle) * reach, Math.sin(angle) * reach, r * (0.05 + noise(i, 5) * 0.05));
+    }
+  });
+  face(ctx, r, { ink: '#0c3a4a', blush: 'rgba(255, 150, 200, 0.45)', y: -0.02, scale: 0.8 });
+};
+
+// Cenario: espaco profundo com nebulosas e a capsula de vidro.
+// O que nao se mexe e desenhado uma vez em dois canvas auxiliares: `back` (atras dos corpos) e `front` (na frente).
+const WALL = 6;
+const CAP = 14;
+const DUST_COUNT = 170;
+const TWINKLE_COUNT = 44;
+const COMET_EVERY = 6.5;
+const COMET_SECONDS = 0.9;
+const NEBULAS = Object.freeze([
+  [0.2, 0.18, 0.55, [282, 85, 48], 0.3], [0.85, 0.3, 0.5, [205, 90, 46], 0.24], [0.15, 0.7, 0.6, [325, 85, 46], 0.2],
+  [0.8, 0.82, 0.55, [250, 85, 50], 0.26], [0.5, 0.5, 0.45, [180, 80, 40], 0.12],
+]);
+
+const tube = Object.freeze({
+  x: CAPSULE.left - WALL, y: CAPSULE.top, w: CAPSULE.right - CAPSULE.left + WALL * 2, h: CAPSULE.floor - CAPSULE.top,
+});
+
+const drawSpace = (ctx, bounds) => {
+  const sky = ctx.createLinearGradient(0, bounds.y, 0, bounds.y + bounds.h);
+  sky.addColorStop(0, '#04051a');
+  sky.addColorStop(0.5, '#120a36');
+  sky.addColorStop(1, '#22104a');
+  ctx.fillStyle = sky;
+  ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
+
+  ctx.globalCompositeOperation = 'lighter';
+  const span = Math.max(bounds.w, bounds.h);
+  NEBULAS.forEach(([fx, fy, size, [h, s, l], alpha]) => {
+    const x = bounds.x + fx * bounds.w;
+    const y = bounds.y + fy * bounds.h;
+    const cloud = ctx.createRadialGradient(x, y, 0, x, y, span * size);
+    cloud.addColorStop(0, `hsl(${h} ${s}% ${l}% / ${alpha})`);
+    cloud.addColorStop(0.5, `hsl(${h} ${s}% ${l}% / ${alpha * 0.35})`);
+    cloud.addColorStop(1, `hsl(${h} ${s}% ${l}% / 0)`);
+    disc(ctx, x, y, span * size, cloud);
+  });
+  ctx.globalCompositeOperation = 'source-over';
+
+  for (let i = 0; i < DUST_COUNT; i += 1) {
+    const tint = ['255, 255, 255', '190, 215, 255', '255, 220, 240'][i % 3];
+    disc(ctx, bounds.x + noise(i, 1) * bounds.w, bounds.y + noise(i, 2) * bounds.h, 0.3 + noise(i, 3) * 0.7, `rgba(${tint}, ${0.25 + noise(i, 4) * 0.5})`);
+  }
+};
+
+const drawGlassBack = (ctx) => {
+  const inside = ctx.createLinearGradient(0, tube.y, 0, tube.y + tube.h);
+  inside.addColorStop(0, 'rgba(18, 14, 60, 0.62)');
+  inside.addColorStop(1, 'rgba(8, 6, 34, 0.74)');
+  ctx.fillStyle = inside;
+  ctx.fillRect(tube.x, tube.y, tube.w, tube.h);
+  const tint = ctx.createLinearGradient(tube.x, 0, tube.x + tube.w, 0);
+  tint.addColorStop(0, 'rgba(140, 190, 255, 0.16)');
+  tint.addColorStop(0.2, 'rgba(140, 190, 255, 0.02)');
+  tint.addColorStop(0.8, 'rgba(190, 140, 255, 0.02)');
+  tint.addColorStop(1, 'rgba(190, 140, 255, 0.14)');
+  ctx.fillStyle = tint;
+  ctx.fillRect(tube.x, tube.y, tube.w, tube.h);
+  const floorGlow = ctx.createLinearGradient(0, CAPSULE.floor - 70, 0, CAPSULE.floor);
+  floorGlow.addColorStop(0, 'rgba(120, 220, 255, 0)');
+  floorGlow.addColorStop(1, 'rgba(120, 220, 255, 0.16)');
+  ctx.fillStyle = floorGlow;
+  ctx.fillRect(tube.x, CAPSULE.floor - 70, tube.w, 70);
+};
+
+// Tampa e base de metal, com luzinhas.
+const drawCap = (ctx, y, lights) => {
+  const x = tube.x - 8;
+  const w = tube.w + 16;
+  const metal = ctx.createLinearGradient(0, y, 0, y + CAP);
+  metal.addColorStop(0, '#aab4e6');
+  metal.addColorStop(0.35, '#646ca8');
+  metal.addColorStop(1, '#2c2a5c');
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetY = 3;
+  roundRectPath(ctx, x, y, w, CAP, CAP / 2);
+  ctx.fillStyle = metal;
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+  ctx.fillRect(x + 10, y + 2.2, w - 20, 1.2);
+  for (let i = 0; i < lights; i += 1) {
+    const lx = x + 22 + (i * (w - 44)) / (lights - 1);
+    disc(ctx, lx, y + CAP * 0.58, 3.6, `hsl(${180 + i * 22} 100% 70% / 0.25)`);
+    disc(ctx, lx, y + CAP * 0.58, 1.7, `hsl(${180 + i * 22} 100% 78%)`);
+  }
+};
+
+const drawGlassFront = (ctx) => {
+  [[tube.x, 1], [tube.x + tube.w - WALL, -1]].forEach(([x, side]) => {
+    const wall = ctx.createLinearGradient(x, 0, x + WALL, 0);
+    wall.addColorStop(side > 0 ? 0 : 1, 'rgba(200, 230, 255, 0.6)');
+    wall.addColorStop(0.5, 'rgba(160, 190, 255, 0.2)');
+    wall.addColorStop(side > 0 ? 1 : 0, 'rgba(255, 255, 255, 0.42)');
+    ctx.fillStyle = wall;
+    ctx.fillRect(x, tube.y, WALL, tube.h);
+  });
+  // Reflexos compridos no vidro.
+  [[CAPSULE.left + 9, 7, 0.13], [CAPSULE.left + 21, 2.5, 0.1], [CAPSULE.right - 15, 3, 0.07]].forEach(([x, width, alpha]) => {
+    const shine = ctx.createLinearGradient(0, tube.y, 0, tube.y + tube.h);
+    shine.addColorStop(0, 'rgba(255, 255, 255, 0)');
+    shine.addColorStop(0.12, `rgba(255, 255, 255, ${alpha})`);
+    shine.addColorStop(0.6, `rgba(255, 255, 255, ${alpha * 0.5})`);
+    shine.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    roundRectPath(ctx, x, tube.y + 16, width, tube.h - 40, width / 2);
+    ctx.fillStyle = shine;
+    ctx.fill();
+  });
+  drawCap(ctx, CAPSULE.top - CAP + 2, 2);
+  drawCap(ctx, CAPSULE.floor, 7);
+};
+
+const boundsOf = (view) => ({
+  x: -view.ox / view.scale, y: -view.oy / view.scale, w: view.width / view.scale, h: view.height / view.scale,
+});
+
+const makeLayer = (view, paint) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(view.width * view.ratio);
+  canvas.height = Math.round(view.height * view.ratio);
+  const ctx = canvas.getContext('2d');
+  const k = view.ratio * view.scale;
+  ctx.setTransform(k, 0, 0, k, view.ox * view.ratio, view.oy * view.ratio);
+  paint(ctx, boundsOf(view));
+  return canvas;
+};
+
+// `view`: { width, height, ratio, scale, ox, oy } em pixels de tela.
+const buildWorld = (view) => Object.freeze({
+  back: makeLayer(view, (ctx, bounds) => {
+    drawSpace(ctx, bounds);
+    drawGlassBack(ctx);
+  }),
+  front: makeLayer(view, (ctx) => drawGlassFront(ctx)),
+});
+
+const drawComet = (ctx, bounds, time) => {
+  const cycle = Math.floor(time / COMET_EVERY);
+  const t = (time - cycle * COMET_EVERY) / COMET_SECONDS;
+  if (t >= 1) return;
+  const x = bounds.x + (0.1 + noise(cycle, 61) * 0.8) * bounds.w + t * 130;
+  const y = bounds.y + noise(cycle, 62) * bounds.h * 0.5 + t * 70;
+  const trail = ctx.createLinearGradient(x, y, x - 60, y - 32);
+  trail.addColorStop(0, `rgba(255, 255, 255, ${0.9 * Math.sin(t * Math.PI)})`);
+  trail.addColorStop(1, 'rgba(160, 200, 255, 0)');
+  ctx.strokeStyle = trail;
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x - 60, y - 32);
+  ctx.stroke();
+};
+
+// Estrelas que piscam e, de vez em quando, uma estrela cadente. `bounds` e a area visivel no espaco de desenho.
+const drawTwinkles = (ctx, bounds, time) => {
+  for (let i = 0; i < TWINKLE_COUNT; i += 1) {
+    const x = bounds.x + noise(i, 51) * bounds.w;
+    const y = bounds.y + noise(i, 52) * bounds.h;
+    const glow = 0.5 + 0.5 * Math.sin(time * (0.8 + noise(i, 53) * 2.4) + noise(i, 54) * TAU);
+    const size = 0.7 + noise(i, 55) * 1.1;
+    ctx.globalAlpha = 0.15 + 0.85 * glow;
+    disc(ctx, x, y, size, '#ffffff');
+    if (i % 5 === 0) {
+      ctx.fillRect(x - size * 3.2 * glow, y - 0.3, size * 6.4 * glow, 0.6);
+      ctx.fillRect(x - 0.3, y - size * 3.2 * glow, 0.6, size * 6.4 * glow);
+    }
+  }
+  ctx.globalAlpha = 1;
+  drawComet(ctx, bounds, time);
+};
+
+
+const c=document.querySelector('canvas'),ctx=c.getContext('2d');
+const W=c.width,H=c.height,P=H>W;
+function ellipse(x,y,rx,ry,color){ctx.fillStyle=color;ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.fill()}
+function glow(x,y,r,color){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,color);g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.fillRect(x-r,y-r,r*2,r*2)}
+function star(x,y,r,color='#fff6ba'){ctx.save();ctx.translate(x,y);ctx.fillStyle=color;ctx.shadowColor=color;ctx.shadowBlur=20;ctx.beginPath();for(let i=0;i<8;i++){let a=i*Math.PI/4,rr=i%2?r*.19:r;ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr)}ctx.closePath();ctx.fill();ctx.restore()}
+function burst(x,y,r,color){ctx.save();ctx.translate(x,y);for(let i=0;i<26;i++){ctx.rotate(Math.PI*2/26);ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(r,-r*.028);ctx.lineTo(r,r*.028);ctx.fill()}ctx.restore()}
+function trail(ax,ay,bx,by,cx,cy,color,width){ctx.save();ctx.lineCap='round';ctx.shadowColor=color;ctx.shadowBlur=22;ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(ax,ay);ctx.quadraticCurveTo(bx,by,cx,cy);ctx.stroke();ctx.strokeStyle='#fffde6';ctx.lineWidth=width*.28;ctx.stroke();ctx.restore()}
+function title(lines,ys,maxWidth,size,x){ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineJoin='round';lines.forEach((line,i)=>{ctx.font=`1000 ${size}px "Arial Black", "Segoe UI", sans-serif`;let s=size*Math.min(1,maxWidth/ctx.measureText(line).width);ctx.font=`1000 ${s}px "Arial Black", "Segoe UI", sans-serif`;ctx.shadowColor='#9d56ff';ctx.shadowBlur=30;ctx.strokeStyle='#190b38';ctx.lineWidth=23;ctx.strokeText(line,x,ys[i]+8);ctx.shadowBlur=0;ctx.strokeStyle='#190b38';ctx.lineWidth=17;ctx.strokeText(line,x,ys[i]);ctx.strokeStyle='#ffe5a3';ctx.lineWidth=3;ctx.strokeText(line,x,ys[i]);let g=ctx.createLinearGradient(0,ys[i]-s*.5,0,ys[i]+s*.5);g.addColorStop(0,'#ffffff');g.addColorStop(.45,'#fff5b9');g.addColorStop(1,'#ffbb36');ctx.fillStyle=g;ctx.fillText(line,x,ys[i])});ctx.restore()}
+function vignette(){let g=ctx.createRadialGradient(W*.52,H*.55,W*.25,W*.5,H*.5,Math.max(W,H)*.7);g.addColorStop(0,'transparent');g.addColorStop(1,'#06051b8a');ctx.fillStyle=g;ctx.fillRect(0,0,W,H)}
+function scene(){ctx.save();ctx.translate(P?0:540,P?490:55);ctx.scale(P?1.08:.68,P?1.08:.68)}
+
+function poly(points,col){ctx.fillStyle=col;ctx.beginPath();points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();ctx.fill()}
+function line(x,y,a,b,col,w){ctx.strokeStyle=col;ctx.lineWidth=w;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(a,b);ctx.stroke()}
+function rr(x,y,w,h,r,col){roundRectPath(ctx,x,y,w,h,r);ctx.fillStyle=col;ctx.fill()}
+function art(){ctx.save();ctx.translate(P?40:570,P?485:35);ctx.scale(P?1:.65,P?1:.65)}
+function heading(a,b){if(P)title([a,b],[185,340],850,150,540);else title([a,b],[225,360],435,105,315)}
+
+
+drawSpace(ctx,{x:0,y:0,w:W,h:H});glow(W*.65,H*.5,850,'#7333cd66');art();burst(500,450,1100,'#bca4ff1b');
+ctx.save();ctx.translate(140,100);ctx.scale(2,1.65);ctx.translate(-42,-66);drawGlassBack(ctx);ctx.restore();
+function planet(fn,x,y,r){ctx.save();ctx.translate(x,y);fn(ctx,r);shade(ctx,r,.8);ctx.restore()}
+planet(drawRinged,365,925,145);planet(drawGasGiant,625,920,155);planet(drawMoon,217,765,78);planet(drawMeteor,750,787,70);planet(drawOcean,475,720,105);planet(drawRocky,690,650,83);
+glow(490,430,410,'#fee9b9aa');burst(490,430,640,'#fff4bc55');
+trail(125,295,280,290,410,420,'#ffc589',17);trail(865,295,720,290,580,420,'#ffc589',17);
+planet(drawRocky,310,388,128);planet(drawRocky,677,388,128);
+star(492,433,90,'#fffade');glow(495,210,270,'#84e9ff88');planet(drawOcean,495,155,155);
+ctx.save();ctx.translate(140,100);ctx.scale(2,1.65);ctx.translate(-42,-66);drawGlassFront(ctx);ctx.restore();
+[[145,520,24],[805,550,30],[660,70,25],[290,75,25],[450,540,18],[700,1050,20]].forEach(s=>star(...s));ctx.restore();vignette();heading('FUSÃO','CÓSMICA');
+
+</script>
