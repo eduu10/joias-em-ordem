@@ -1,0 +1,51 @@
+const STRINGS = Object.freeze({
+  pt: Object.freeze({
+    loading: 'Carregando...',
+    title: 'Corrida',
+    subtitle: 'nas Nuvens',
+    tapToStart: 'Toque para jogar',
+    hintLane: 'Faixa',
+    hintJump: 'Pular',
+    hintSlide: 'Deslizar',
+    hintSwipe: 'Deslize o dedo para desviar, pular e deslizar',
+    meters: 'm',
+    gameOver: 'Entrega interrompida!',
+    score: 'Pontos',
+    distance: 'Distância',
+    coins: 'Moedas',
+    best: 'Recorde',
+    newBest: 'Novo recorde!',
+    reviveAd: 'Ver anúncio e continuar',
+    playAgain: 'Jogar de novo',
+    adUnavailable: 'Anúncio indisponível agora',
+    magnet: 'Ímã',
+    shield: 'Escudo',
+  }),
+  en: Object.freeze({
+    loading: 'Loading...',
+    title: 'Cloud',
+    subtitle: 'Dash',
+    tapToStart: 'Tap to play',
+    hintLane: 'Lane',
+    hintJump: 'Jump',
+    hintSlide: 'Slide',
+    hintSwipe: 'Swipe to dodge, jump and slide',
+    meters: 'm',
+    gameOver: 'Delivery interrupted!',
+    score: 'Score',
+    distance: 'Distance',
+    coins: 'Coins',
+    best: 'Best',
+    newBest: 'New best!',
+    reviveAd: 'Watch ad to continue',
+    playAgain: 'Play again',
+    adUnavailable: 'No ad available right now',
+    magnet: 'Magnet',
+    shield: 'Shield',
+  }),
+});
+
+export const stringsFor = (localeTag) => {
+  const lang = String(localeTag || '').slice(0, 2).toLowerCase();
+  return STRINGS[lang] ?? STRINGS.en;
+};

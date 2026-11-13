@@ -100,6 +100,18 @@ Fica na pasta `guardioes/` e usa as mesmas ferramentas. É um jogo de fusão com
 - **Monetização:** ao perder, o jogador pode ver um anúncio para continuar da mesma onda, uma vez por partida, ou jogar de novo sem anúncio. Há anúncio entre partidas a cada 2 derrotas.
 - **Recorde:** a maior onda vencida fica no save da nuvem e é enviada como pontuação.
 
+## Outros jogos
+
+Cada jogo fica na sua pasta, com os comandos `npm run dev:<pasta>`, `npm run check:<pasta>` e `npm run bundle:<pasta>`, e testes em `tests/<pasta>.test.js`.
+
+| Jogo | Pasta | Porta local | Link público |
+|---|---|---|---|
+| Fusão Cósmica: soltar planetas e fundir os iguais, com física própria | `cosmos/` | 5175 | https://eduu10.github.io/fusao-cosmica/ |
+| Blocos de Cristal: encaixar peças num tabuleiro 8x8 e limpar linhas | `cristais/` | 5176 | https://eduu10.github.io/blocos-de-cristal/ |
+| Corrida nas Nuvens: corrida infinita de três pistas com um robô entregador | `corrida/` | 5177 | https://eduu10.github.io/corrida-nas-nuvens/ |
+
+Os três seguem o mesmo padrão dos primeiros: lógica pura e testada, save na nuvem, pontuação enviada ao YouTube, anúncio com recompensa para continuar (uma vez por partida, sempre opcional) e anúncio entre partidas a cada 2 derrotas.
+
 ## Capas
 
 As capas de cada jogo ficam em `covers/`, em formato retrato e paisagem.
