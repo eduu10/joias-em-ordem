@@ -3,7 +3,9 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = fileURLToPath(new URL('../game', import.meta.url));
+// Uso: node tools/check.mjs [pasta do jogo]
+const FOLDER = process.argv[2] ?? 'game';
+const ROOT = fileURLToPath(new URL(`../${FOLDER}`, import.meta.url));
 const MIB = 1024 * 1024;
 const LIMITS = Object.freeze({
   totalBytes: 250 * MIB,
@@ -46,7 +48,7 @@ const inspectFile = async (file) => {
 
 const checkIndex = async () => {
   const html = await readFile(join(ROOT, 'index.html'), 'utf8').catch(() => null);
-  if (html === null) return ['index.html nao encontrado na raiz de game/'];
+  if (html === null) return ['index.html nao encontrado na raiz da pasta do jogo'];
   const scripts = [...html.matchAll(/<script\b[^>]*>/g)].map((match) => match[0]);
   if (!scripts.length || !scripts[0].includes(SDK_URL)) {
     return [`o primeiro <script> do index.html precisa ser o SDK (${SDK_URL})`];

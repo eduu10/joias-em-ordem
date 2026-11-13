@@ -86,6 +86,24 @@ Para validar a integração, rode `npm run dev` e abra o jogo na ferramenta ofic
 - Test Suite: https://developers.google.com/youtube/gaming/playables/test_suite
 - Guia: https://developers.google.com/youtube/gaming/playables/reference/test_suite_guide
 
+## Segundo jogo: Guardiões da Fusão
+
+Fica na pasta `guardioes/` e usa as mesmas ferramentas. É um jogo de fusão com defesa de torre: invoque magos, arraste um sobre outro igual para fundir num mais forte e segure as ondas de monstros antes que cheguem ao castelo.
+
+| Comando | O que faz |
+|---|---|
+| `npm run dev:guardioes` | Sobe o jogo em http://localhost:5174 |
+| `npm run check:guardioes` | Confere a pasta contra os limites do YouTube |
+| `npm run bundle:guardioes` | Gera `playable-guardioes.zip` |
+
+- **Regras e balanceamento:** `guardioes/src/sim.js` e `guardioes/src/config.js`. Um teste joga partidas inteiras com um jogador automático para garantir que a dificuldade faz sentido.
+- **Monetização:** ao perder, o jogador pode ver um anúncio para continuar da mesma onda, uma vez por partida, ou jogar de novo sem anúncio. Há anúncio entre partidas a cada 2 derrotas.
+- **Recorde:** a maior onda vencida fica no save da nuvem e é enviada como pontuação.
+
+## Capas
+
+As capas de cada jogo ficam em `covers/`, em formato retrato e paisagem.
+
 ## Cadastro
 
 O acesso é por aprovação. O formulário pede um jogo já jogável e de sua autoria:

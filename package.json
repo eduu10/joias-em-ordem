@@ -8,6 +8,9 @@
     "dev": "node tools/serve.mjs",
     "test": "node --test \"tests/*.test.js\"",
     "check": "node tools/check.mjs",
-    "bundle": "node tools/check.mjs && node tools/bundle.mjs"
+    "bundle": "node tools/check.mjs && node tools/bundle.mjs",
+    "dev:guardioes": "node tools/serve.mjs guardioes 5174",
+    "check:guardioes": "node tools/check.mjs guardioes",
+    "bundle:guardioes": "node tools/check.mjs guardioes && node tools/bundle.mjs guardioes"
   }
 }

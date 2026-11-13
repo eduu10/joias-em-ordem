@@ -4,8 +4,10 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(fileURLToPath(new URL('../game', import.meta.url)));
-const PORT = Number(process.env.PORT) || 5173;
+// Uso: node tools/serve.mjs [pasta do jogo] [porta]
+const FOLDER = process.argv[2] ?? 'game';
+const ROOT = resolve(fileURLToPath(new URL(`../${FOLDER}`, import.meta.url)));
+const PORT = Number(process.argv[3] ?? process.env.PORT) || 5173;
 const TYPES = Object.freeze({
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
