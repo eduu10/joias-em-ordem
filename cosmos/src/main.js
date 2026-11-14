@@ -60,7 +60,7 @@ const resize = () => {
   sprites = buildSprites(ratio * scale);
   ui = { ...ui, drag: null };
   // Mudar o tamanho apaga o canvas. Em pausa nao ha quadro novo, entao redesenha aqui.
-  if (booted && !running) drawFrame();
+  if (booted) drawFrame();
 };
 
 const toDesign = (clientX, clientY) => ({

@@ -55,7 +55,7 @@ const resize = () => {
   canvas.height = Math.round(height * ratio);
   input?.cancel();
   // Mudar o tamanho apaga o canvas. Em pausa nao ha quadro novo, entao redesenha aqui.
-  if (booted && !running) drawFrame();
+  if (booted) drawFrame();
 };
 
 const toDesign = (clientX, clientY) => ({

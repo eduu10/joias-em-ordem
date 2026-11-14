@@ -52,7 +52,7 @@ const resize = () => {
   world = buildWorld(view);
   ui = { ...ui, drag: null, back: null };
   // Mudar o tamanho apaga o canvas. Em pausa nao ha quadro novo, entao redesenha aqui.
-  if (booted && !running) drawFrame();
+  if (booted) drawFrame();
 };
 
 const toDesign = (clientX, clientY) => ({
