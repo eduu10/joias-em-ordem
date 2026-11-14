@@ -20,6 +20,9 @@
     "bundle:cristais": "node tools/check.mjs cristais && node tools/bundle.mjs cristais",
     "dev:corrida": "node tools/serve.mjs corrida 5177",
     "check:corrida": "node tools/check.mjs corrida",
-    "bundle:corrida": "node tools/check.mjs corrida && node tools/bundle.mjs corrida"
+    "bundle:corrida": "node tools/check.mjs corrida && node tools/bundle.mjs corrida",
+    "dev:melodia": "node tools/serve.mjs melodia 5178",
+    "check:melodia": "node tools/check.mjs melodia",
+    "bundle:melodia": "node tools/check.mjs melodia && node tools/bundle.mjs melodia"
   }
 }
