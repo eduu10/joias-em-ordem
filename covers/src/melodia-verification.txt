@@ -1,0 +1,2 @@
+covers/qual-e-a-melodia-portrait.png: 1080 x 1620
+covers/qual-e-a-melodia-landscape.png: 1280 x 720
