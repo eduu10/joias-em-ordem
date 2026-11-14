@@ -55,7 +55,7 @@ const resize = () => {
   // As posicoes do voo sao em pixels da tela antiga: termina o voo em vez de voar torto.
   if (fx.flight) landFlight(fx.flight);
   // Mudar o tamanho apaga o canvas. Em pausa nao ha quadro novo, entao redesenha aqui.
-  if (booted && !running) drawFrame();
+  if (booted) drawFrame();
 };
 
 const drawFrame = () =>
