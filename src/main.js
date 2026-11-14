@@ -45,9 +45,9 @@ const toast = (text) => { fx = { ...fx, toast: { text, t: 0 } }; };
 
 const resize = () => {
   const ratio = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO);
-  view = { width: window.innerWidth, height: window.innerHeight, ratio };
-  canvas.width = Math.round(view.width * ratio);
-  canvas.height = Math.round(view.height * ratio);
+  view = { width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight), ratio };
+  canvas.width = Math.max(1, Math.round(view.width * ratio));
+  canvas.height = Math.max(1, Math.round(view.height * ratio));
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   clearSprites();
   if (!session) return;
@@ -269,7 +269,6 @@ const bindInput = () => {
     handlePointer(event.clientX, event.clientY);
   });
   window.addEventListener('keydown', handleKey);
-  window.addEventListener('resize', resize);
 };
 
 // Pausa e retomada so pelo SDK: o YouTube proibe usar a Page Visibility API para isso.
@@ -289,6 +288,10 @@ const bindPlatform = () => {
 };
 
 const boot = async () => {
+  // Ouvir o tamanho desde o comeco: o YouTube pode redimensionar o jogo durante o carregamento.
+  window.addEventListener('resize', resize);
+  // Soltar o dedo conta como gesto do jogador em todo navegador, o toque inicial nem sempre.
+  window.addEventListener('pointerup', () => audio.unlock());
   resize();
   drawLoading(ctx, view, strings);
   platform.firstFrameReady();
@@ -298,6 +301,8 @@ const boot = async () => {
   const [raw, locale] = await Promise.all([platform.loadData(), platform.getLanguage()]);
   progress = parseSave(raw);
   strings = stringsFor(locale);
+  // O tamanho pode ter mudado enquanto os dados carregavam.
+  resize();
   loadLevel(progress.level);
 
   bindInput();
