@@ -27,15 +27,16 @@ export const CONFIG = Object.freeze({
   maxPoints: 100,
   minCorrectPoints: 10,
 
-  // Rival controlado pelo jogo: fica mais rapido e mais certeiro conforme o nivel do jogador.
-  rivalAccuracyBase: 0.48,
-  rivalAccuracyPerLevel: 0.025,
-  rivalAccuracyMax: 0.8,
-  rivalDelayMin: 3.4,
-  rivalDelayMax: 8.6,
-  rivalDelayPerLevel: 0.12,
-  rivalDelayFloorMin: 2.2,
-  rivalDelayFloorMax: 5.6,
+  // Rival controlado pelo jogo: fica mais rapido e mais certeiro conforme o nivel do jogador, com teto.
+  // Medido com um jogador automatico que acerta 70%: ganha ~78% no nivel 1 e ~48% nos niveis altos.
+  rivalAccuracyBase: 0.42,
+  rivalAccuracyPerLevel: 0.01,
+  rivalAccuracyMax: 0.58,
+  rivalDelayMin: 3.6,
+  rivalDelayMax: 9,
+  rivalDelayPerLevel: 0.06,
+  rivalDelayFloorMin: 3,
+  rivalDelayFloorMax: 7.8,
 
   coinsWin: 30,
   coinsTie: 15,
@@ -56,6 +57,8 @@ export const CONFIG = Object.freeze({
   interstitialEveryMatches: 3,
   tuneGapBeats: 3,
   maxFrameSeconds: 0.05,
+  // O tempo da rodada anda pelo relogio real; um salto maior que isto (sem pausa avisada) conta so ate aqui.
+  roundClockMaxStep: 1,
   saveVersion: 1,
 });
 

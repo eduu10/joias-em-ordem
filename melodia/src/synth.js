@@ -64,13 +64,18 @@ const playVoice = (context, bus, preset, midi, startAt, seconds) => {
   });
 };
 
+// Construtor do WebAudio, ou null num navegador sem suporte a som.
+const audioCtor = () => (typeof window === 'undefined' ? null : window.AudioContext || window.webkitAudioContext || null);
+
 export const createSynth = (initiallyEnabled) => {
+  const supported = Boolean(audioCtor());
   let enabled = initiallyEnabled;
   let paused = false;
   let context = null;
   let output = null;
   let tune = null;
   let timer = 0;
+  let broken = false;
 
   const ready = () => Boolean(context) && enabled && !paused && context.state === 'running';
 
@@ -142,10 +147,17 @@ export const createSynth = (initiallyEnabled) => {
   // Navegadores so liberam audio depois de um toque do jogador.
   const unlock = () => {
     if (!enabled) return;
-    const Ctor = window.AudioContext || window.webkitAudioContext;
+    const Ctor = audioCtor();
     if (!context && Ctor) {
-      context = new Ctor();
-      output = buildOutput(context);
+      try {
+        context = new Ctor();
+        output = buildOutput(context);
+      } catch {
+        // Alguns navegadores tem o construtor mas recusam criar o contexto: conta como sem som.
+        context = null;
+        output = null;
+        broken = true;
+      }
     }
     // No celular o contexto pode nascer suspenso: tenta ligar de novo a cada toque.
     if (context && !paused && context.state !== 'running') sync();
@@ -193,6 +205,10 @@ export const createSynth = (initiallyEnabled) => {
   return Object.freeze({
     unlock, playTune, stopTune, playSound, levels, setEnabled, suspend, resume,
     isReady: ready,
+    // Falso quando o navegador nao tem WebAudio (ou nao deixou criar o contexto): o jogo nao tem como tocar.
+    isSupported: () => supported && !broken,
+    // Relogio do audio em segundos, ou null se o som nao esta rodando. Parado em pausa e no mudo.
+    clock: () => (ready() ? context.currentTime : null),
     isEnabled: () => enabled,
     isPlaying: () => Boolean(tune),
   });

@@ -45,6 +45,9 @@ export const RESULT = Object.freeze({
   c: rect(48, 534, 264, 34),
 });
 
+// Aviso de navegador sem som: um botao so, de volta ao inicio.
+export const NO_AUDIO = Object.freeze({ home: rect(56, 470, 248, 56) });
+
 const SHOP_TOP = 70;
 const SHOP_STEP = 94;
 export const SHOP = Object.freeze({

@@ -1,7 +1,7 @@
 // Descobre em que o jogador tocou. Devolve uma chave ("play", "card:2", "item:frame-gold"...) ou null.
 // Funcao pura: usa os mesmos retangulos do desenho e nao altera nada.
 import { CATEGORY_ORDER, PHASE, SCREEN, SHOP_ITEMS } from './config.js';
-import { BACK_BUTTON, CATEGORY_CARDS, HOME, MATCH, SHOP, inRect } from './layout.js';
+import { BACK_BUTTON, CATEGORY_CARDS, HOME, MATCH, NO_AUDIO, SHOP, inRect } from './layout.js';
 import { resultButtons } from './screens-meta.js';
 
 const RESULT_INPUT_DELAY = 0.7;
@@ -43,5 +43,8 @@ const TARGETS = Object.freeze({
   [SCREEN.SHOP]: shopTarget,
 });
 
-// `frame`: { profile, match, ui }
-export const tapTarget = (frame, x, y) => TARGETS[frame.ui.screen](frame, x, y);
+// `frame`: { profile, match, ui }. Com o aviso de "sem som" na tela, so o botao de voltar vale.
+export const tapTarget = (frame, x, y) => {
+  if (frame.ui.noAudio) return inRect(NO_AUDIO.home, x, y) ? 'noAudioHome' : null;
+  return TARGETS[frame.ui.screen](frame, x, y);
+};

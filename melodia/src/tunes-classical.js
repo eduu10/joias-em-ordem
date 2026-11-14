@@ -33,8 +33,7 @@ export const CLASSICAL_TUNES = Object.freeze([
   {
     id: 'minuet-g', pt: 'Minueto em Sol maior', en: 'Minuet in G major', composer: 'Christian Petzold',
     tempo: 132, preset: 'piano', unit: 0.5,
-    score: 'D5:1 G4 A4 B4 C5 D5:1 G4:1 G4:1 E5:1 C5 D5 E5 F#5 G5:1 G4:1 G4:1 '
-      + 'C5:1 D5 C5 B4 A4 B4:1 C5 B4 A4 G4 F#4:1 G4 A4 B4 G4 A4:3',
+    score: 'D5:1 G4 A4 B4 C5 D5:1 G4:1 G4:1 E5:1 C5 D5 E5 F#5 G5:1 G4:1 G4:1 C5:1 D5 C5 B4 A4 B4:1 C5 B4 A4 G4 F#4:1 G4 A4 B4 G4 B4:1 A4:2',
   },
   {
     id: 'jesu-joy', pt: 'Jesus, Alegria dos Homens', en: 'Jesu, Joy of Man\'s Desiring', composer: 'Johann Sebastian Bach',
@@ -44,15 +43,13 @@ export const CLASSICAL_TUNES = Object.freeze([
   },
   {
     id: 'toccata-d', pt: 'Tocata e Fuga em Ré menor', en: 'Toccata and Fugue in D minor', composer: 'Johann Sebastian Bach',
-    tempo: 120, preset: 'strings', unit: 0.25,
-    score: 'A5 G5 A5:2.5 R:.5 G5 F5 E5 D5 C#5:1 D5:2 R:1 A4 G4 A4:2.5 R:.5 E4:.5 F4:.5 C#4:1 D4:2 R:1 '
-      + 'A3 G3 A3:2.5 R:.5 G3 F3 E3 D3 C#3:1 D3:2',
+    tempo: 80, preset: 'strings', unit: 0.25,
+    score: 'A5 G5 A5:1.5 R:.5 G5 F5 E5 D5 C#5:.5 D5:1 R:1 A4 G4 A4:1.5 R:.5 E4:.5 F4:.5 C#4:.5 D4:1 R:1 A3 G3 A3:1.5 R:.5 G3 F3 E3 D3 C#3:.5 D3:1',
   },
   {
     id: 'spring', pt: 'A Primavera (As Quatro Estações)', en: 'Spring (The Four Seasons)', composer: 'Antonio Vivaldi',
     tempo: 100, preset: 'strings', unit: 0.5,
-    score: 'E4 G#4 G#4 G#4 F#4:.25 E4:.25 B4:1.5 B4:.25 A4:.25 G#4 G#4 G#4 F#4:.25 E4:.25 B4:1.5 B4:.25 A4:.25 '
-      + 'G#4 A4:.25 B4:.25 A4 G#4 F#4:2',
+    score: 'E4 G#4 G#4 G#4 F#4:.25 E4:.25 B4:1.5 B4:.25 A4:.25 G#4 G#4 G#4 F#4:.25 E4:.25 B4:1.5 B4:.25 A4:.25 G#4 A4:.25 B4:.25 A4 G#4 F#4 D#4 B3:1',
   },
   {
     id: 'canon-d', pt: 'Cânone em Ré maior', en: 'Canon in D', composer: 'Johann Pachelbel',

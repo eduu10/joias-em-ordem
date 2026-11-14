@@ -63,6 +63,9 @@ const STRINGS = Object.freeze({
     mutedLine1: 'Este é um jogo de ouvir melodias.',
     mutedLine2: 'Ative o som e o jogo continua sozinho.',
     tapForSound: 'Toque na tela para ligar o som',
+    noAudioTitle: 'Sem som neste navegador',
+    noAudioLine1: 'Este navegador não consegue tocar som.',
+    noAudioLine2: 'Tente outro navegador ou atualize este.',
     points: 'pts',
   }),
   en: Object.freeze({
@@ -129,6 +132,9 @@ const STRINGS = Object.freeze({
     mutedLine1: 'This is a game about listening to tunes.',
     mutedLine2: 'Turn the sound on and the game resumes by itself.',
     tapForSound: 'Tap the screen to turn the sound on',
+    noAudioTitle: 'No sound in this browser',
+    noAudioLine1: 'This browser cannot play sound.',
+    noAudioLine2: 'Try another browser or update this one.',
     points: 'pts',
   }),
 });

@@ -2,7 +2,7 @@
 import { DESIGN, OUTCOME, SHOP_ITEMS, SHOP_KIND } from './config.js';
 import { drawText, fitText, roundRectPath } from './draw.js';
 import { clamp01, easeOutCubic, lerp } from './ease.js';
-import { RESULT, SHOP } from './layout.js';
+import { NO_AUDIO, RESULT, SHOP } from './layout.js';
 import { isOwned } from './profile.js';
 import { drawSpeaker } from './icons.js';
 import { MOOD, drawPlayer, drawRobot } from './mascot.js';
@@ -142,4 +142,16 @@ export const drawMuted = (ctx, frame) => {
   drawHeadline(ctx, strings.mutedTitle, CX, 350, 26, GOLD, 330);
   drawText(ctx, strings.mutedLine1, CX, 394, fitText(ctx, strings.mutedLine1, 320, 15, 600), { weight: 600 });
   drawText(ctx, strings.mutedLine2, CX, 420, fitText(ctx, strings.mutedLine2, 320, 15, 600), { weight: 600, color: '#d9c8ff' });
+};
+
+// Navegador sem suporte a som: explica e oferece a volta ao inicio. Nunca deixa o jogador preso.
+export const drawNoAudio = (ctx, frame) => {
+  const { strings, ui, bounds } = frame;
+  ctx.fillStyle = 'rgba(8, 2, 24, 0.92)';
+  ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
+  drawSpeaker(ctx, CX - 8, 232 + Math.sin(ui.time * 2.4) * 4, 44, true, ui.time);
+  drawHeadline(ctx, strings.noAudioTitle, CX, 340, 24, GOLD, 330);
+  drawText(ctx, strings.noAudioLine1, CX, 384, fitText(ctx, strings.noAudioLine1, 320, 15, 600), { weight: 600 });
+  drawText(ctx, strings.noAudioLine2, CX, 410, fitText(ctx, strings.noAudioLine2, 320, 15, 600), { weight: 600, color: '#d9c8ff' });
+  drawButton(ctx, NO_AUDIO.home, strings.home, { style: 'gold', pressed: ui.press?.key === 'noAudioHome' });
 };

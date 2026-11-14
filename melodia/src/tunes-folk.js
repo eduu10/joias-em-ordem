@@ -9,7 +9,7 @@ export const FOLK_TUNES = Object.freeze([
   {
     id: 'greensleeves', pt: 'Greensleeves', en: 'Greensleeves', composer: null,
     tempo: 88, preset: 'flute', unit: 0.5,
-    score: 'A4 C5:1 D5 E5:.75 F#5:.25 E5 D5:1 B4 G4:.75 A4:.25 B4 C5:1 A4 A4:.75 G#4:.25 A4 B4:1 G#4 E4:1.5',
+    score: 'A4 C5:1 D5 E5:.75 F5:.25 E5 D5:1 B4 G4:.75 A4:.25 B4 C5:1 A4 A4:.75 G#4:.25 A4 B4:1 G#4 E4:1.5',
   },
   {
     id: 'amazing-grace', pt: 'Amazing Grace (Graça Maravilhosa)', en: 'Amazing Grace', composer: null,

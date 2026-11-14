@@ -4,7 +4,7 @@ import { drawText } from './draw.js';
 import { drawFx } from './fx.js';
 import { drawMatch } from './hud.js';
 import { drawCategory, drawHome } from './screens-home.js';
-import { drawMuted, drawResult, drawShop } from './screens-meta.js';
+import { drawMuted, drawNoAudio, drawResult, drawShop } from './screens-meta.js';
 import { drawBackdrop } from './stage.js';
 import { drawToast } from './widgets.js';
 
@@ -42,5 +42,6 @@ export const drawScene = (ctx, frame) => {
   SCREEN_DRAW[ui.screen](ctx, full);
   drawFx(ctx, ui.fx);
   drawToast(ctx, ui.toast?.text, 382, ui.toast ? Math.min(1, ui.toast.t * 6, (TOAST_SECONDS - ui.toast.t) * 3) : 0);
+  if (ui.noAudio) drawNoAudio(ctx, full);
   if (ui.muted) drawMuted(ctx, full);
 };

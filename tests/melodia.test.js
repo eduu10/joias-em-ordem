@@ -12,6 +12,10 @@ import {
 } from '../melodia/src/profile.js';
 import { parseSave, serializeSave } from '../melodia/src/save.js';
 import { stringsFor } from '../melodia/src/strings.js';
+import { heldClock, tickClock } from '../melodia/src/round-clock.js';
+import { tapTarget } from '../melodia/src/taps.js';
+import { NO_AUDIO, MATCH as MATCH_LAYOUT } from '../melodia/src/layout.js';
+import { createSynth } from '../melodia/src/synth.js';
 
 const DT = 1 / 20;
 const REAL_CATEGORIES = CATEGORY_ORDER.filter((category) => category !== CATEGORY.MIX);
@@ -363,7 +367,9 @@ test('jogador automatico com semente joga 300 partidas inteiras', () => {
   }
   assert.equal(profile.matches, 300);
   assert.equal(profile.wins, outcomes.win);
-  assert.ok(outcomes.win > 30 && outcomes.lose > 30, JSON.stringify(outcomes));
+  // Com o rival rebalanceado, um jogador razoavel (70% de acerto) ganha a maior parte das partidas.
+  assert.ok(outcomes.win >= 120 && outcomes.win <= 240, JSON.stringify(outcomes));
+  assert.ok(outcomes.lose >= 45, JSON.stringify(outcomes));
   console.log(`  bot: ${JSON.stringify(outcomes)}, nivel ${levelInfo(profile.xp).level}, ${profile.coins} moedas`);
 });
 
@@ -405,5 +411,82 @@ test('textos: portugues, ingles e idioma desconhecido cai no ingles', () => {
   SHOP_ITEMS.forEach((item) => {
     assert.ok(pt[`item_${item.id}`] && en[`item_${item.id}`], item.id);
     assert.ok(pt[`kind_${item.kind}`] && en[`kind_${item.kind}`], item.kind);
+  });
+});
+
+// Taxa de vitoria do jogador automatico (70% de acerto) num nivel fixo.
+const winShare = (level, matches = 300) => {
+  let wins = 0;
+  for (let seed = 1; seed <= matches; seed += 1) {
+    const { match } = playMatch(seed * 31, { level });
+    if (match.playerScore > match.rivalScore) wins += 1;
+  }
+  return wins / matches;
+};
+
+test('balanceamento: ganha bem no comeco e cerca de metade nos niveis altos', () => {
+  const early = winShare(1);
+  const late = winShare(60);
+  assert.ok(early >= 0.65, `nivel 1: ${early}`);
+  assert.ok(late >= 0.38 && late <= 0.62, `nivel 60: ${late}`);
+  assert.ok(early > late);
+  const top = rivalSkill(CONFIG.maxLevel);
+  assert.ok(top.accuracy <= CONFIG.rivalAccuracyMax && CONFIG.rivalAccuracyMax <= 0.65);
+  assert.ok(top.delayMin >= CONFIG.rivalDelayFloorMin && CONFIG.rivalDelayFloorMin >= 2.5);
+  assert.ok(top.delayMax >= CONFIG.rivalDelayFloorMax);
+});
+
+test('relogio da rodada mede o tempo real, sem o limite do quadro', () => {
+  let clock = heldClock();
+  let tick = tickClock(clock, 'audio', 10);
+  assert.equal(tick.dt, 0, 'o primeiro toque so marca a hora');
+  clock = tick.clock;
+  tick = tickClock(clock, 'audio', 10.2);
+  assert.ok(Math.abs(tick.dt - 0.2) < 1e-9, 'quadro lento de 0,2 s conta inteiro (o quadro de desenho para em 0,05)');
+  assert.ok(tick.dt > CONFIG.maxFrameSeconds);
+  clock = tick.clock;
+  assert.equal(tickClock(clock, 'audio', 9).dt, 0, 'nunca anda para tras');
+  assert.equal(tickClock(clock, 'page', 500).dt, 0, 'trocar de relogio recomeca a contagem');
+  assert.equal(tickClock(clock, 'audio', 60).dt, CONFIG.roundClockMaxStep);
+  assert.equal(tickClock(clock, 'audio', Number.NaN).dt, 0);
+  assert.deepEqual(clock, tickClock(clock, 'audio', 10.2).clock);
+
+  // Pausa: o relogio e parado; o tempo que passou em pausa nao conta na volta.
+  const paused = heldClock();
+  const resumed = tickClock(paused, 'audio', 99);
+  assert.equal(resumed.dt, 0);
+  assert.ok(Math.abs(tickClock(resumed.clock, 'audio', 99.5).dt - 0.5) < 1e-9);
+
+  // Dez segundos reais em quadros lentos de 0,25 s esgotam a rodada, como a musica.
+  let match = toPlay(createMatch({ category: CATEGORY.FOLK }, createRng(4)));
+  let real = heldClock();
+  for (let t = 0; t <= CONFIG.roundSeconds + 0.3 && match.phase === PHASE.PLAY; t += 0.25) {
+    const step1 = tickClock(real, 'page', 1000 + t);
+    real = step1.clock;
+    match = step(match, step1.dt).state;
+  }
+  assert.equal(match.phase, PHASE.FEEDBACK);
+});
+
+test('sem WebAudio: o jogo sabe e o aviso tem saida para o inicio', () => {
+  const synth = createSynth(true);
+  assert.equal(synth.isSupported(), false, 'no Node nao ha AudioContext');
+  assert.equal(synth.clock(), null);
+  assert.equal(synth.isReady(), false);
+  assert.doesNotThrow(() => {
+    synth.unlock();
+    synth.playTune({ notes: TUNES[0].notes, tempo: 120, preset: 'piano', gapBeats: 2 });
+    synth.playSound('tap');
+    synth.stopTune();
+  });
+  const match = toPlay(createMatch({ category: CATEGORY.FOLK }, createRng(2)));
+  const ui = { screen: 'match', noAudio: true, screenT: 5 };
+  const center = (area) => [area.x + area.w / 2, area.y + area.h / 2];
+  assert.equal(tapTarget({ profile: createProfile(), match, ui }, ...center(NO_AUDIO.home)), 'noAudioHome');
+  assert.equal(tapTarget({ profile: createProfile(), match, ui }, ...center(MATCH_LAYOUT.cards[0])), null);
+  assert.equal(tapTarget({ profile: createProfile(), match, ui: { ...ui, noAudio: false } }, ...center(MATCH_LAYOUT.cards[0])), 'card:0');
+  ['pt', 'en'].forEach((lang) => {
+    const text = stringsFor(lang);
+    ['noAudioTitle', 'noAudioLine1', 'noAudioLine2', 'home'].forEach((key) => assert.ok(text[key], `${lang}.${key}`));
   });
 });

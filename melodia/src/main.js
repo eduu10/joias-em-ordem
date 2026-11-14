@@ -13,6 +13,7 @@ import { confetti, floatText, sparks, stepFx } from './fx.js';
 import { MATCH, SHOP } from './layout.js';
 import { TOAST_SECONDS, drawLoading, drawScene } from './scene.js';
 import { tapTarget } from './taps.js';
+import { heldClock, tickClock } from './round-clock.js';
 
 const MAX_PIXEL_RATIO = 2;
 const EQ_BARS = 16;
@@ -34,6 +35,7 @@ let match = null;
 let ui = {
   screen: SCREEN.HOME, screenT: 0, time: 0, spin: 0, energy: 0, eq: Array(EQ_BARS).fill(0), fx: [], press: null,
   toast: null, summary: null, popPlayer: 0, popRival: 0, coinPop: 0, needTap: false, muted: !platform.isAudioEnabled(),
+  noAudio: false,
 };
 let interstitialDue = false;
 let matchSeed = 0;
@@ -43,6 +45,7 @@ let paused = false;
 let booted = false;
 let frameId = 0;
 let lastTime = 0;
+let roundClock = heldClock();
 
 const persist = () => platform.saveData(serializeSave(profile));
 const addFx = (...items) => { ui = { ...ui, fx: [...ui.fx, ...items.flat()] }; };
@@ -122,14 +125,43 @@ const applyStep = (result) => {
   result.events.forEach(onEvent);
 };
 
+// Navegador sem WebAudio: a rodada nunca teria som, entao mostra o aviso em vez de esperar para sempre.
+const showNoAudio = () => {
+  synth.stopTune();
+  roundClock = heldClock();
+  ui = { ...ui, noAudio: true, needTap: false, press: null };
+};
+
+// Segundos reais desde o ultimo quadro: pelo relogio do audio quando o som esta rodando (anda junto com a
+// melodia e para sozinho em pausa e no mudo), senao pelo relogio da pagina.
+const matchSeconds = () => {
+  const audio = synth.clock();
+  const tick = audio === null
+    ? tickClock(roundClock, 'page', performance.now() / 1000)
+    : tickClock(roundClock, 'audio', audio);
+  roundClock = tick.clock;
+  return tick.dt;
+};
+
 // A partida so anda com o som ligado e tocando: sem ouvir a melodia nao da para responder.
-const updateMatch = (dt) => {
-  if (ui.screen !== SCREEN.MATCH || !match || ui.muted) return;
+const updateMatch = () => {
+  if (ui.screen !== SCREEN.MATCH || !match || ui.muted || ui.noAudio) {
+    roundClock = heldClock();
+    return;
+  }
+  if (match.phase === PHASE.PLAY && !synth.isSupported()) {
+    showNoAudio();
+    return;
+  }
   const needTap = match.phase === PHASE.PLAY && !synth.isReady();
   ui = { ...ui, needTap };
-  if (needTap) return;
-  if (match.phase === PHASE.READY && match.t === 0) synth.playSound('ready');
-  applyStep(step(match, dt));
+  if (needTap) {
+    roundClock = heldClock();
+    return;
+  }
+  const fresh = roundClock.last === null;
+  if (match.phase === PHASE.READY && match.t === 0 && fresh) synth.playSound('ready');
+  applyStep(step(match, matchSeconds()));
 };
 
 const fade = (value, dt, perSecond) => Math.max(0, value - dt * perSecond);
@@ -153,7 +185,7 @@ const update = (dt) => {
     popRival: fade(ui.popRival, dt, 2.2),
     coinPop: fade(ui.coinPop, dt, 4),
   };
-  updateMatch(dt);
+  updateMatch();
 };
 
 const frame = (time) => {
@@ -181,6 +213,10 @@ const stopLoop = () => {
 
 // Anuncio entre partidas: so na troca de tela depois do resultado, nunca no meio de uma rodada.
 const startMatch = async (category, double) => {
+  if (!synth.isSupported()) {
+    showNoAudio();
+    return;
+  }
   if (interstitialDue) {
     interstitialDue = false;
     busy = true;
@@ -190,6 +226,7 @@ const startMatch = async (category, double) => {
   match = createMatch(
     { category, level: levelInfo(profile.xp).level, recent: profile.recent, double }, createRng(matchSeed),
   );
+  roundClock = heldClock();
   ui = { ...ui, fx: [], summary: null, popPlayer: 0, popRival: 0, needTap: false };
   goTo(SCREEN.MATCH);
 };
@@ -239,6 +276,10 @@ const act = (key) => {
   const [kind, value] = key.split(':');
   if (kind === 'card') return applyStep(answer(match, currentQuestion(match).options[Number(value)]));
   synth.playSound('tap');
+  if (kind === 'noAudioHome') {
+    ui = { ...ui, noAudio: false };
+    return goTo(SCREEN.HOME);
+  }
   if (kind === 'play') return goTo(SCREEN.CATEGORY);
   if (kind === 'shop') return goTo(SCREEN.SHOP);
   if (kind === 'back' || kind === 'home') return goTo(SCREEN.HOME);
@@ -252,7 +293,7 @@ const act = (key) => {
 const handleDown = (x, y) => {
   if (!running || busy || ui.muted) return;
   // Um toque que so serviu para destravar o audio nao pode responder a rodada sem o jogador ouvir nada.
-  const wasDeaf = ui.screen === SCREEN.MATCH && !synth.isReady();
+  const wasDeaf = ui.screen === SCREEN.MATCH && !ui.noAudio && !synth.isReady();
   synth.unlock();
   if (wasDeaf) return;
   const key = tapTarget({ profile, match, ui }, x, y);
@@ -265,7 +306,12 @@ const handleKey = (event) => {
   if (event.repeat || !running || busy || ui.muted) return;
   synth.unlock();
   const card = CARD_KEYS.indexOf(event.code);
-  if (ui.screen === SCREEN.MATCH && match?.phase === PHASE.PLAY && card >= 0 && synth.isReady()) {
+  if (ui.noAudio) {
+    if (event.code === 'Enter' || event.code === 'Space' || event.code === 'Escape') {
+      event.preventDefault();
+      act('noAudioHome');
+    }
+  } else if (ui.screen === SCREEN.MATCH && match?.phase === PHASE.PLAY && card >= 0 && synth.isReady()) {
     event.preventDefault();
     ui = { ...ui, press: { key: `card:${card}`, t: 0 } };
     act(`card:${card}`);
@@ -296,12 +342,16 @@ const bindPlatform = () => {
   platform.onPause(() => {
     paused = true;
     stopLoop();
+    // O tempo da rodada congela: na volta o relogio recomeca do zero, sem contar o tempo em pausa.
+    roundClock = heldClock();
+    ui = { ...ui, press: null };
     // Corta a melodia (inclusive as notas ja agendadas). Com o laco parado, o tempo da rodada congela.
     synth.suspend();
     persist();
   });
   platform.onResume(() => {
     paused = false;
+    roundClock = heldClock();
     synth.resume();
     if (match?.phase === PHASE.PLAY && ui.screen === SCREEN.MATCH) playRoundTune();
     if (booted) startLoop();
