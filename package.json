@@ -23,6 +23,9 @@
     "bundle:corrida": "node tools/check.mjs corrida && node tools/bundle.mjs corrida",
     "dev:melodia": "node tools/serve.mjs melodia 5178",
     "check:melodia": "node tools/check.mjs melodia",
-    "bundle:melodia": "node tools/check.mjs melodia && node tools/bundle.mjs melodia"
+    "bundle:melodia": "node tools/check.mjs melodia && node tools/bundle.mjs melodia",
+    "dev:cantiga": "node tools/serve.mjs cantiga 5179",
+    "check:cantiga": "node tools/check.mjs cantiga",
+    "bundle:cantiga": "node tools/check.mjs cantiga && node tools/bundle.mjs cantiga"
   }
 }
