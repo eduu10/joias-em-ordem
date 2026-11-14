@@ -1,0 +1,2 @@
+portrait: 1080 x 1620
+landscape: 1280 x 720
