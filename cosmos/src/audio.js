@@ -22,9 +22,11 @@ export const createAudio = (initiallyEnabled) => {
 
   // Navegadores so liberam audio depois de um toque do jogador.
   const unlock = () => {
-    if (context || !enabled) return;
+    if (!enabled) return;
     const Ctor = window.AudioContext || window.webkitAudioContext;
-    if (Ctor) context = new Ctor();
+    if (!context && Ctor) context = new Ctor();
+    // No celular o contexto pode nascer suspenso: tenta ligar de novo a cada toque.
+    if (context && !paused && context.state === 'suspended') context.resume().catch(() => {});
   };
 
   const playNote = (sound, semitones, delay) => {
@@ -42,7 +44,7 @@ export const createAudio = (initiallyEnabled) => {
   };
 
   const play = (name, transpose = 0) => {
-    if (!enabled || !context || context.state !== 'running') return;
+    if (!enabled || paused || !context || context.state !== 'running') return;
     const sound = SOUNDS[name];
     if (!sound) return;
     sound.notes.forEach(([semitones, delay]) => playNote(sound, semitones + transpose, delay));

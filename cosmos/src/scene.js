@@ -51,6 +51,11 @@ const drawHeld = (ctx, frame) => {
   });
 };
 
+// Fora de drawCaptions de proposito: o aviso tambem precisa aparecer na tela de fim de jogo.
+const drawToast = (ctx, ui) => {
+  if (ui.toast) drawCaption(ctx, ui.toast.text, HINT_Y, Math.min(1, ui.toast.t * 6, (TOAST_SECONDS - ui.toast.t) * 3));
+};
+
 const drawCaptions = (ctx, frame) => {
   const { state, strings, ui } = frame;
   if (state.phase !== PHASE.PLAY) return;
@@ -59,7 +64,6 @@ const drawCaptions = (ctx, frame) => {
   if (state.dangerT > CONFIG.dangerSeconds * 0.25) {
     drawCaption(ctx, strings.danger, WARNING_Y, 0.6 + 0.4 * Math.sin(ui.time * 14), '#ffb3c0');
   }
-  if (ui.toast) drawCaption(ctx, ui.toast.text, HINT_Y, Math.min(1, ui.toast.t * 6, (TOAST_SECONDS - ui.toast.t) * 3));
 };
 
 export const drawLoading = (ctx, view, strings) => {
@@ -103,4 +107,5 @@ export const drawScene = (ctx, frame) => {
   if (state.phase === PHASE.OVER) {
     drawOverPanel(ctx, bounds, { score: state.score, best: state.best, record: ui.record, canRevive: !state.revived }, strings, ui.overT);
   }
+  drawToast(ctx, ui);
 };

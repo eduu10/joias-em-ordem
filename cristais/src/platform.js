@@ -12,11 +12,32 @@ const report = (label, error) => {
 let loaded = false;
 
 // Um anuncio que nunca responde nao pode travar o jogo: depois do limite, segue sem ele.
-const AD_TIMEOUT_MS = 90000;
+// O relogio so anda com o jogo ativo. Enquanto o anuncio esta na tela o YouTube pausa o jogo,
+// entao assistir a um anuncio longo nunca faz perder a recompensa.
+const AD_TIMEOUT_MS = 20000;
+let adClock = null;
 const withTimeout = (promise, fallback) => {
   let timer = 0;
-  const limit = new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), AD_TIMEOUT_MS); });
-  return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+  let left = AD_TIMEOUT_MS;
+  let startedAt = 0;
+  let giveUp = () => {};
+  const limit = new Promise((resolve) => { giveUp = () => resolve(fallback); });
+  const arm = () => {
+    clearTimeout(timer);
+    startedAt = Date.now();
+    timer = setTimeout(giveUp, left);
+  };
+  const hold = () => {
+    clearTimeout(timer);
+    left = Math.max(0, left - (Date.now() - startedAt));
+    startedAt = Date.now();
+  };
+  adClock = { arm, hold };
+  arm();
+  return Promise.race([promise, limit]).finally(() => {
+    clearTimeout(timer);
+    adClock = null;
+  });
 };
 
 export const platform = Object.freeze({
@@ -94,10 +115,18 @@ export const platform = Object.freeze({
   },
 
   onPause(callback) {
-    if (inPlayables) sdk.system.onPause(callback);
+    if (!inPlayables) return;
+    sdk.system.onPause(() => {
+      adClock?.hold();
+      callback();
+    });
   },
 
   onResume(callback) {
-    if (inPlayables) sdk.system.onResume(callback);
+    if (!inPlayables) return;
+    sdk.system.onResume(() => {
+      adClock?.arm();
+      callback();
+    });
   },
 });

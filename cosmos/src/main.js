@@ -54,8 +54,8 @@ const resize = () => {
   const height = Math.max(1, window.innerHeight);
   const scale = Math.min(width / DESIGN.w, height / DESIGN.h);
   view = { width, height, ratio, scale, ox: (width - DESIGN.w * scale) / 2, oy: (height - DESIGN.h * scale) / 2 };
-  canvas.width = Math.round(width * ratio);
-  canvas.height = Math.round(height * ratio);
+  canvas.width = Math.max(1, Math.round(width * ratio));
+  canvas.height = Math.max(1, Math.round(height * ratio));
   world = buildWorld(view);
   sprites = buildSprites(ratio * scale);
   ui = { ...ui, drag: null };
@@ -186,7 +186,8 @@ const tryDrop = () => {
 // Anuncio entre partidas: so na troca de tela depois do fim de jogo, nunca no meio da partida.
 const playAgain = async () => {
   if (busy) return;
-  if (runsEnded % CONFIG.interstitialEveryRuns === 0) {
+  // Quem acabou de ver um anuncio para continuar nao leva outro logo em seguida.
+  if (!state.revived && runsEnded % CONFIG.interstitialEveryRuns === 0) {
     busy = true;
     await platform.showInterstitial().finally(() => { busy = false; });
   }
@@ -257,7 +258,8 @@ const bindInput = () => {
   const ownsDrag = (event) => ui.drag && ui.drag.pointerId === event.pointerId;
   canvas.addEventListener('pointerdown', (event) => {
     event.preventDefault();
-    if (ui.drag) return;
+    // Um arrasto que ficou preso (dedo solto fora da tela) e descartado no proximo toque.
+    if (ui.drag) ui = { ...ui, drag: null };
     const { x, y } = point(event);
     handleDown(x, y, event.pointerId);
   });
@@ -270,7 +272,6 @@ const bindInput = () => {
   canvas.addEventListener('pointercancel', (event) => { if (ownsDrag(event)) handleUp(true); });
   window.addEventListener('keydown', (event) => handleKey(event, true));
   window.addEventListener('keyup', (event) => handleKey(event, false));
-  window.addEventListener('resize', resize);
 };
 
 // Pausa e retomada so pelo SDK: o YouTube proibe usar a Page Visibility API para isso.
@@ -291,6 +292,10 @@ const bindPlatform = () => {
 };
 
 const boot = async () => {
+  // Ouvir o tamanho desde o comeco: o YouTube pode redimensionar o jogo durante o carregamento.
+  window.addEventListener('resize', resize);
+  // Soltar o dedo conta como gesto do jogador em todo navegador, o toque inicial nem sempre.
+  window.addEventListener('pointerup', () => audio.unlock());
   resize();
   drawLoading(ctx, view, strings);
   platform.firstFrameReady();
@@ -300,6 +305,8 @@ const boot = async () => {
   const [raw, locale] = await Promise.all([platform.loadData(), platform.getLanguage()]);
   state = createState(parseSave(raw).best);
   strings = stringsFor(locale);
+  // O tamanho pode ter mudado enquanto os dados carregavam.
+  resize();
 
   bindInput();
   booted = true;

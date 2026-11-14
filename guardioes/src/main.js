@@ -43,12 +43,13 @@ const drawFrame = () => drawScene(ctx, { state, view, world, strings, ui });
 
 const resize = () => {
   const ratio = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO);
-  const width = window.innerWidth;
-  const height = window.innerHeight;
+  // Uma janela ainda sem tamanho (0 x 0) nao pode virar escala zero no desenho.
+  const width = Math.max(1, window.innerWidth);
+  const height = Math.max(1, window.innerHeight);
   const scale = Math.min(width / DESIGN.w, height / DESIGN.h);
   view = { width, height, ratio, scale, ox: (width - DESIGN.w * scale) / 2, oy: (height - DESIGN.h * scale) / 2 };
-  canvas.width = Math.round(width * ratio);
-  canvas.height = Math.round(height * ratio);
+  canvas.width = Math.max(1, Math.round(width * ratio));
+  canvas.height = Math.max(1, Math.round(height * ratio));
   world = buildWorld(view);
   ui = { ...ui, drag: null };
   // Mudar o tamanho apaga o canvas. Em pausa nao ha quadro novo, entao redesenha aqui.
@@ -181,7 +182,8 @@ const tryBuy = () => {
 
 // Anuncio entre partidas: so na troca de tela depois do fim de jogo, nunca no meio da partida.
 const playAgain = async () => {
-  if (runsEnded % CONFIG.interstitialEveryRuns === 0) {
+  // Quem acabou de ver um anuncio para continuar nao leva outro logo em seguida.
+  if (!state.revived && runsEnded % CONFIG.interstitialEveryRuns === 0) {
     busy = true;
     await platform.showInterstitial().finally(() => { busy = false; });
   }
@@ -218,7 +220,7 @@ const handleDown = (x, y, pointerId) => {
   const slot = slotAt(x, y);
   if (slot >= 0 && state.heroes[slot]) {
     ui = { ...ui, drag: { slot, x, y, over: slot, pointerId } };
-    canvas.setPointerCapture?.(pointerId);
+    try { canvas.setPointerCapture?.(pointerId); } catch { /* ponteiro ja solto: segue sem captura */ }
   }
 };
 
@@ -251,7 +253,8 @@ const bindInput = () => {
   const ownsDrag = (event) => ui.drag && ui.drag.pointerId === event.pointerId;
   canvas.addEventListener('pointerdown', (event) => {
     event.preventDefault();
-    if (ui.drag) return;
+    // Um arrasto que ficou preso (dedo solto fora da tela) e descartado no proximo toque.
+    if (ui.drag) ui = { ...ui, drag: null };
     const { x, y } = point(event);
     handleDown(x, y, event.pointerId);
   });
@@ -270,7 +273,6 @@ const bindInput = () => {
     if (state.phase === PHASE.TITLE) beginRun();
     else if (state.phase === PHASE.BUILD || state.phase === PHASE.WAVE) tryBuy();
   });
-  window.addEventListener('resize', resize);
 };
 
 // Pausa e retomada so pelo SDK: o YouTube proibe usar a Page Visibility API para isso.
@@ -291,6 +293,10 @@ const bindPlatform = () => {
 };
 
 const boot = async () => {
+  // Ouvir o tamanho desde o comeco: o YouTube pode redimensionar o jogo durante o carregamento.
+  window.addEventListener('resize', resize);
+  // Soltar o dedo conta como gesto do jogador em todo navegador, o toque inicial nem sempre.
+  window.addEventListener('pointerup', () => audio.unlock());
   resize();
   drawLoading(ctx, view, strings);
   platform.firstFrameReady();
@@ -300,6 +306,8 @@ const boot = async () => {
   const [raw, locale] = await Promise.all([platform.loadData(), platform.getLanguage()]);
   state = createState(parseSave(raw).best);
   strings = stringsFor(locale);
+  // O tamanho pode ter mudado enquanto os dados carregavam.
+  resize();
 
   bindInput();
   booted = true;

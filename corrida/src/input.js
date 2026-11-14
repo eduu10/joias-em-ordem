@@ -24,13 +24,13 @@ const swipeAction = (dx, dy) => {
  * @returns {{cancel: () => void}} `cancel` descarta o gesto em andamento (pausa, anuncio, troca de tela)
  */
 export const bindInput = (canvas, handlers) => {
-  // So o dedo (ou botao) que comecou o gesto pode termina-lo.
+  // So o dedo (ou botao) do gesto atual pode termina-lo. Um toque novo substitui o anterior,
+  // para dois polegares alternando rapido nao perderem comandos.
   let gesture = null;
   const owns = (event) => gesture !== null && gesture.pointerId === event.pointerId;
 
   canvas.addEventListener('pointerdown', (event) => {
     event.preventDefault();
-    if (gesture) return;
     if (!handlers.onDown(event.clientX, event.clientY)) return;
     gesture = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, fired: false };
     try { canvas.setPointerCapture?.(event.pointerId); } catch { /* ponteiro ja solto: segue sem captura */ }
