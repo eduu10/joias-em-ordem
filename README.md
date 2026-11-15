@@ -111,6 +111,7 @@ Cada jogo fica na sua pasta, com os comandos `npm run dev:<pasta>`, `npm run che
 | Corrida nas Nuvens: corrida infinita de três pistas com um robô entregador | `corrida/` | 5177 | https://eduu10.github.io/corrida-nas-nuvens/ |
 | Qual é a Melodia?: quiz de adivinhar melodias de domínio público, tocadas por sintetizador, contra um rival controlado pelo jogo | `melodia/` | 5178 | https://eduu10.github.io/qual-e-a-melodia/ |
 | Complete a Cantiga!: karaokê de cantigas tradicionais de domínio público em que a música para e você escolhe a próxima palavra | `cantiga/` | 5179 | https://eduu10.github.io/complete-a-cantiga/ |
+| Batida Total: laboratório de testes de colisão com lataria que amassa de verdade e bonecos de teste | `batida/` | 5180 | https://eduu10.github.io/batida-total/ |
 
 Os três seguem o mesmo padrão dos primeiros: lógica pura e testada, save na nuvem, pontuação enviada ao YouTube, anúncio com recompensa para continuar (uma vez por partida, sempre opcional) e anúncio entre partidas a cada 2 derrotas.
 
