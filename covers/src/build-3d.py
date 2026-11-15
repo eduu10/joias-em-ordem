@@ -22,6 +22,7 @@ GAMES = [
     ("corrida-nas-nuvens", ["CORRIDA", "NAS NUVENS"]),
     ("qual-e-a-melodia", ["QUAL É A", "MELODIA?"]),
     ("complete-a-cantiga", ["COMPLETE A", "CANTIGA!"]),
+    ("batida-total", ["BATIDA", "TOTAL"]),
 ]
 
 
