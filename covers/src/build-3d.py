@@ -23,6 +23,7 @@ GAMES = [
     ("qual-e-a-melodia", ["QUAL É A", "MELODIA?"]),
     ("complete-a-cantiga", ["COMPLETE A", "CANTIGA!"]),
     ("batida-total", ["BATIDA", "TOTAL"]),
+    ("morro-acima", ["MORRO", "ACIMA"], "bottom"),
 ]
 
 
@@ -96,13 +97,14 @@ def draw_title(base, lines, area):
     return base
 
 
-def darken_top(img, frac):
-    """Escurece o alto da imagem para o titulo ler bem."""
+def darken_top(img, frac, bottom=False):
+    """Escurece o alto (ou o pe) da imagem para o titulo ler bem."""
     w, h = img.size
     grad = Image.new("L", (1, h))
     limit = h * frac
     for y in range(h):
-        grad.putpixel((0, y), round(max(0, 1 - y / limit) * 150))
+        dist = (h - 1 - y) if bottom else y
+        grad.putpixel((0, y), round(max(0, 1 - dist / limit) * 150))
     shade = Image.new("RGB", (w, h), (10, 4, 24))
     img.paste(shade, (0, 0), grad.resize((w, h)))
     return img
@@ -117,11 +119,13 @@ def vignette(img):
     return Image.composite(img, Image.blend(img, dark, 0.55), mask)
 
 
-def portrait(art, lines):
-    img = vignette(darken_top(cover_crop(art, PORTRAIT), 0.42))
+def portrait(art, lines, place="top"):
+    bottom = place == "bottom"
+    img = vignette(darken_top(cover_crop(art, PORTRAIT), 0.42, bottom))
     w, h = PORTRAIT
     m = round(w * SAFE)
-    return draw_title(img, lines, (m, round(h * 0.045), w - m, round(h * 0.27)))
+    area = (m, round(h * 0.705), w - m, round(h * 0.93)) if bottom else (m, round(h * 0.045), w - m, round(h * 0.27))
+    return draw_title(img, lines, area)
 
 
 def landscape(art, lines):
@@ -143,13 +147,13 @@ def landscape(art, lines):
 
 def main(src_dir):
     src = Path(src_dir)
-    for game_id, lines in GAMES:
+    for game_id, lines, *rest in GAMES:
         art_path = next((p for p in (src / f"{game_id}.webp", src / f"{game_id}.png") if p.exists()), None)
         if art_path is None:
             print(f"sem arte para {game_id}")
             continue
         art = Image.open(art_path).convert("RGB")
-        portrait(art, lines).save(OUT / f"{game_id}-portrait.png", optimize=True)
+        portrait(art, lines, *rest).save(OUT / f"{game_id}-portrait.png", optimize=True)
         landscape(art, lines).save(OUT / f"{game_id}-landscape.png", optimize=True)
         print(f"ok {game_id}")
 
